@@ -15,7 +15,6 @@ A simple, powerful, and resumable terminal download manager/script for very larg
 ## Requirements
 
 - `curl` - For downloading files
-- `bc` - For mathematical calculations (progress)
 - `bash` or `zsh` - Compatible with both shells
 
 ## Installation
@@ -106,7 +105,6 @@ If the script reports a size mismatch after download, the file may be corrupted 
 
 If you get errors about missing commands:
 - Install curl: `sudo apt install curl` (Ubuntu/Debian) or `brew install curl` (macOS)
-- Install bc: `sudo apt install bc` (Ubuntu/Debian) or `brew install bc` (macOS)
 
 ## Contributing
 

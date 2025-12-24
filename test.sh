@@ -49,17 +49,7 @@ else
 fi
 echo
 
-echo "Test 5: Verify bc is available"
-if command -v bc &> /dev/null; then
-    echo "✓ bc is installed"
-else
-    echo "✗ bc is not installed"
-    exit 1
-fi
-echo
-
-# Test 6: Script syntax
-echo "Test 6: Verify bash syntax"
+echo "Test 5: Verify bash syntax"
 if bash -n download.sh; then
     echo "✓ Bash syntax is valid"
 else
@@ -68,8 +58,8 @@ else
 fi
 echo
 
-# Test 7: Check for required functions
-echo "Test 7: Verify all required functions exist"
+# Test 6: Check for required functions
+echo "Test 6: Verify all required functions exist"
 required_functions=(
     "print_info"
     "print_success"
@@ -88,7 +78,8 @@ required_functions=(
 
 all_functions_exist=true
 for func in "${required_functions[@]}"; do
-    if grep -q "^$func()" download.sh; then
+    # More flexible pattern to handle various function syntax styles
+    if grep -qE "^[[:space:]]*${func}[[:space:]]*\(\)" download.sh; then
         echo "  ✓ Function $func exists"
     else
         echo "  ✗ Function $func missing"
@@ -104,8 +95,8 @@ else
 fi
 echo
 
-# Test 8: Check for proper error handling
-echo "Test 8: Verify error handling patterns exist"
+# Test 7: Check for proper error handling
+echo "Test 7: Verify error handling patterns exist"
 if grep -q "set -euo pipefail" download.sh; then
     echo "✓ Strict error handling is enabled"
 else

@@ -85,30 +85,30 @@ format_bytes() {
     local unit=0
     local size=$bytes
     
-    while (( $(echo "$size >= 1024" | bc -l) )) && (( unit < 4 )); do
-        size=$(echo "scale=2; $size / 1024" | bc)
+    # Use bash arithmetic instead of bc for efficiency
+    while (( size >= 1024 )) && (( unit < 4 )); do
+        size=$(( size / 1024 ))
         ((unit++))
     done
     
-    printf "%.2f %s" "$size" "${units[$unit]}"
+    echo "$size ${units[$unit]}"
 }
 
 # Function to get file size (cross-platform)
 get_file_size() {
     local file="$1"
-    # Try macOS stat syntax first, then Linux syntax
-    stat -f%z "$file" 2>/dev/null || stat -c%s "$file" 2>/dev/null || echo 0
+    # Use wc -c for portable byte count
+    if [[ -f "$file" ]]; then
+        wc -c < "$file" 2>/dev/null | tr -d ' ' || echo 0
+    else
+        echo 0
+    fi
 }
 
 # Function to check if curl supports range requests
 check_curl_support() {
     if ! command -v curl &> /dev/null; then
         print_error "curl is not installed. Please install curl to use this script."
-        exit 1
-    fi
-    
-    if ! command -v bc &> /dev/null; then
-        print_error "bc is not installed. Please install bc to use this script."
         exit 1
     fi
 }
@@ -191,8 +191,6 @@ download_file() {
         "$url"
     )
     
-    print_info "Download command: ${curl_cmd[*]}"
-    
     # Execute download
     if "${curl_cmd[@]}"; then
         # Download successful, move temp file to final location
@@ -249,13 +247,20 @@ main() {
     # Check if file already exists
     if [[ -f "$output_file" ]]; then
         print_warning "File '$output_file' already exists"
-        read -p "Do you want to overwrite it? (y/N): " -n 1 -r
-        echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            print_info "Download cancelled"
-            exit 0
+        # Only prompt if we're in an interactive terminal
+        if [[ -t 0 ]]; then
+            read -p "Do you want to overwrite it? (y/N): " -n 1 -r
+            echo
+            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                print_info "Download cancelled"
+                exit 0
+            fi
+            rm -f "$output_file"
+        else
+            print_error "Cannot overwrite existing file in non-interactive mode"
+            print_info "Please remove the file manually or use a different filename"
+            exit 1
         fi
-        rm -f "$output_file"
     fi
     
     # Check server resume support
