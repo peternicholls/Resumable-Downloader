@@ -1,2 +1,2 @@
 # Resumable-Downloader
-A simple estimable download script in bash
+A simple resumable download script in bash
