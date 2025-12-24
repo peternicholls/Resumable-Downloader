@@ -183,7 +183,7 @@ steps:
 ### Use in a Docker build
 ```dockerfile
 FROM ubuntu:22.04
-RUN apt-get update && apt-get install -y curl bc
+RUN apt-get update && apt-get install -y curl
 COPY download.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/download.sh
 RUN download.sh https://example.com/data.tar.gz /data/data.tar.gz
