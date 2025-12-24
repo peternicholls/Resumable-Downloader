@@ -93,6 +93,13 @@ format_bytes() {
     printf "%.2f %s" "$size" "${units[$unit]}"
 }
 
+# Function to get file size (cross-platform)
+get_file_size() {
+    local file="$1"
+    # Try macOS stat syntax first, then Linux syntax
+    stat -f%z "$file" 2>/dev/null || stat -c%s "$file" 2>/dev/null || echo 0
+}
+
 # Function to check if curl supports range requests
 check_curl_support() {
     if ! command -v curl &> /dev/null; then
@@ -149,7 +156,7 @@ download_file() {
     
     # Check if partial file exists
     if [[ -f "$temp_file" ]]; then
-        resume_from=$(stat -f%z "$temp_file" 2>/dev/null || stat -c%s "$temp_file" 2>/dev/null || echo 0)
+        resume_from=$(get_file_size "$temp_file")
         print_info "Found partial download: $(format_bytes "$resume_from")"
         print_info "Resuming download..."
     else
@@ -194,7 +201,7 @@ download_file() {
         
         # Show final file info
         local final_size
-        final_size=$(stat -f%z "$output_file" 2>/dev/null || stat -c%s "$output_file" 2>/dev/null || echo 0)
+        final_size=$(get_file_size "$output_file")
         print_info "File saved as: $output_file"
         print_info "File size: $(format_bytes "$final_size")"
         

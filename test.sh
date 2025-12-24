@@ -78,6 +78,7 @@ required_functions=(
     "usage"
     "get_filename_from_url"
     "format_bytes"
+    "get_file_size"
     "check_curl_support"
     "check_resume_support"
     "get_remote_size"
@@ -87,7 +88,7 @@ required_functions=(
 
 all_functions_exist=true
 for func in "${required_functions[@]}"; do
-    if grep -q "^$func()" download.sh || grep -q "^${func} ()" download.sh; then
+    if grep -q "^$func()" download.sh; then
         echo "  ✓ Function $func exists"
     else
         echo "  ✗ Function $func missing"
