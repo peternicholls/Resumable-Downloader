@@ -1,0 +1,1607 @@
+#!/usr/bin/env bash
+#
+# SafeDownload - A fully featured CLI download manager
+# Supports both command-line and terminal UI modes
+#
+# Usage: safedownload [options] [URL] [output_filename]
+#        safedownload -g                    # Launch TUI mode
+#
+# Author: Peter Nicholls
+# License: MIT
+#
+
+set -euo pipefail
+
+# ==============================================================================
+# CONFIGURATION
+# ==============================================================================
+
+VERSION="1.0.0"
+STATE_DIR="${HOME}/.safedownload"
+STATE_FILE="${STATE_DIR}/state.json"
+QUEUE_FILE="${STATE_DIR}/queue.json"
+LOG_FILE="${STATE_DIR}/safedownload.log"
+CONFIG_FILE="${STATE_DIR}/config.json"
+PID_DIR="${STATE_DIR}/pids"
+DOWNLOAD_DIR="${STATE_DIR}/downloads"
+
+# Default settings
+MAX_PARALLEL_DOWNLOADS=3
+RETRY_COUNT=5
+RETRY_DELAY=3
+CHUNK_SIZE=10485760  # 10MB chunks
+
+# Download states
+STATE_QUEUED="queued"
+STATE_DOWNLOADING="downloading"
+STATE_PAUSED="paused"
+STATE_COMPLETED="completed"
+STATE_FAILED="failed"
+STATE_VERIFYING="verifying"
+
+# Color codes
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+MAGENTA='\033[0;35m'
+WHITE='\033[1;37m'
+GRAY='\033[0;90m'
+NC='\033[0m'
+BOLD='\033[1m'
+
+# ==============================================================================
+# UTILITY FUNCTIONS
+# ==============================================================================
+
+print_info() {
+    echo -e "${BLUE}[INFO]${NC} $1"
+}
+
+print_success() {
+    echo -e "${GREEN}[SUCCESS]${NC} $1"
+}
+
+print_warning() {
+    echo -e "${YELLOW}[WARNING]${NC} $1"
+}
+
+print_error() {
+    echo -e "${RED}[ERROR]${NC} $1"
+}
+
+print_progress() {
+    echo -e "${CYAN}[PROGRESS]${NC} $1"
+}
+
+log_message() {
+    local level="$1"
+    local message="$2"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [$level] $message" >> "$LOG_FILE"
+}
+
+# Initialize state directory
+init_state_dir() {
+    mkdir -p "$STATE_DIR"
+    mkdir -p "$PID_DIR"
+    mkdir -p "$DOWNLOAD_DIR"
+    
+    # Initialize state file if not exists
+    if [[ ! -f "$STATE_FILE" ]]; then
+        echo '{"downloads":[],"next_id":1}' > "$STATE_FILE"
+    fi
+    
+    # Initialize queue file if not exists
+    if [[ ! -f "$QUEUE_FILE" ]]; then
+        echo '{"queue":[]}' > "$QUEUE_FILE"
+    fi
+    
+    # Initialize config file if not exists
+    if [[ ! -f "$CONFIG_FILE" ]]; then
+        cat > "$CONFIG_FILE" << EOF
+{
+    "max_parallel": 3,
+    "retry_count": 5,
+    "retry_delay": 3,
+    "default_output_dir": ".",
+    "verify_checksum": true
+}
+EOF
+    fi
+    
+    touch "$LOG_FILE"
+}
+
+# Format bytes to human readable
+format_bytes() {
+    local bytes=$1
+    local units=("B" "KB" "MB" "GB" "TB")
+    local unit=0
+    local size=$bytes
+    
+    while (( size >= 1024 )) && (( unit < 4 )); do
+        size=$(( size / 1024 ))
+        ((unit++))
+    done
+    
+    echo "$size ${units[$unit]}"
+}
+
+# Get filename from URL
+get_filename_from_url() {
+    local url="$1"
+    local filename
+    filename=$(basename "$url" | sed 's/[?#].*$//')
+    
+    if [[ -z "$filename" || "$filename" == "/" ]]; then
+        filename="downloaded_file_$(date +%s)"
+    fi
+    
+    echo "$filename"
+}
+
+# Get file size (cross-platform)
+get_file_size() {
+    local file="$1"
+    if [[ -f "$file" ]]; then
+        wc -c < "$file" 2>/dev/null | tr -d ' ' || echo 0
+    else
+        echo 0
+    fi
+}
+
+# Get remote file size
+get_remote_size() {
+    local url="$1"
+    local size
+    size=$(curl -sI -L "$url" 2>/dev/null | grep -i "Content-Length:" | tail -1 | awk '{print $2}' | tr -d '\r')
+    if [[ -n "$size" ]]; then
+        echo "$size"
+    else
+        echo "0"
+    fi
+}
+
+# Check if server supports resume
+check_resume_support() {
+    local url="$1"
+    local headers
+    headers=$(curl -sI -L "$url" 2>/dev/null)
+    
+    if echo "$headers" | grep -qi "Accept-Ranges:.*bytes"; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# ==============================================================================
+# STATE MANAGEMENT
+# ==============================================================================
+
+# Read state file
+read_state() {
+    if [[ -f "$STATE_FILE" ]]; then
+        cat "$STATE_FILE"
+    else
+        echo '{"downloads":[],"next_id":1}'
+    fi
+}
+
+# Write state file
+write_state() {
+    local state="$1"
+    echo "$state" > "$STATE_FILE"
+}
+
+# Get next download ID
+get_next_id() {
+    local state
+    state=$(read_state)
+    echo "$state" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('next_id', 1))"
+}
+
+# Increment next ID
+increment_next_id() {
+    local state
+    state=$(read_state)
+    local new_state
+    new_state=$(echo "$state" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+d['next_id'] = d.get('next_id', 1) + 1
+print(json.dumps(d))
+")
+    write_state "$new_state"
+}
+
+# Add download to state
+add_download() {
+    local url="$1"
+    local output="$2"
+    local sha="${3:-}"
+    local sha_type="${4:-}"
+    
+    local id
+    id=$(get_next_id)
+    
+    local state
+    state=$(read_state)
+    
+    # Escape special characters for JSON
+    local escaped_url escaped_output escaped_sha escaped_sha_type
+    escaped_url=$(printf '%s' "$url" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read())[1:-1])')
+    escaped_output=$(printf '%s' "$output" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read())[1:-1])')
+    escaped_sha=$(printf '%s' "$sha" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read())[1:-1])')
+    escaped_sha_type=$(printf '%s' "$sha_type" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read())[1:-1])')
+    local created_at
+    created_at=$(date -Iseconds)
+    
+    local new_state
+    new_state=$(echo "$state" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+new_download = {
+    'id': $id,
+    'url': \"$escaped_url\",
+    'output': \"$escaped_output\",
+    'sha': \"$escaped_sha\",
+    'sha_type': \"$escaped_sha_type\",
+    'state': '$STATE_QUEUED',
+    'progress': 0,
+    'size': 0,
+    'downloaded': 0,
+    'created_at': '$created_at',
+    'updated_at': '$created_at'
+}
+d['downloads'].append(new_download)
+d['next_id'] = $id + 1
+print(json.dumps(d))
+")
+    write_state "$new_state"
+    echo "$id"
+}
+
+# Update download state
+update_download_state() {
+    local id="$1"
+    local new_state="$2"
+    
+    local state
+    state=$(read_state)
+    
+    local updated
+    updated=$(echo "$state" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+for dl in d['downloads']:
+    if dl['id'] == $id:
+        dl['state'] = '$new_state'
+        dl['updated_at'] = '$(date -Iseconds)'
+        break
+print(json.dumps(d))
+")
+    write_state "$updated"
+}
+
+# Update download progress
+update_download_progress() {
+    local id="$1"
+    local downloaded="$2"
+    local total="$3"
+    
+    local state
+    state=$(read_state)
+    
+    local updated
+    updated=$(echo "$state" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+for dl in d['downloads']:
+    if dl['id'] == $id:
+        dl['downloaded'] = $downloaded
+        dl['size'] = $total
+        if $total > 0:
+            dl['progress'] = int(($downloaded * 100) / $total)
+        dl['updated_at'] = '$(date -Iseconds)'
+        break
+print(json.dumps(d))
+")
+    write_state "$updated"
+}
+
+# Get download by ID
+get_download() {
+    local id="$1"
+    local state
+    state=$(read_state)
+    
+    echo "$state" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+for dl in d['downloads']:
+    if dl['id'] == $id:
+        print(json.dumps(dl))
+        break
+"
+}
+
+# List all downloads
+list_downloads() {
+    local state
+    state=$(read_state)
+    echo "$state" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+for dl in d['downloads']:
+    print(json.dumps(dl))
+"
+}
+
+# Get downloads by state
+get_downloads_by_state() {
+    local target_state="$1"
+    local state
+    state=$(read_state)
+    
+    echo "$state" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+for dl in d['downloads']:
+    if dl['state'] == '$target_state':
+        print(json.dumps(dl))
+"
+}
+
+# Remove download from state
+remove_download() {
+    local id="$1"
+    local state
+    state=$(read_state)
+    
+    local updated
+    updated=$(echo "$state" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+d['downloads'] = [dl for dl in d['downloads'] if dl['id'] != $id]
+print(json.dumps(d))
+")
+    write_state "$updated"
+}
+
+# Clear completed downloads
+clear_completed() {
+    local state
+    state=$(read_state)
+    
+    local updated
+    updated=$(echo "$state" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+d['downloads'] = [dl for dl in d['downloads'] if dl['state'] != '$STATE_COMPLETED']
+print(json.dumps(d))
+")
+    write_state "$updated"
+}
+
+# Clear all except in-progress
+clear_all_except_inprogress() {
+    local state
+    state=$(read_state)
+    
+    local updated
+    updated=$(echo "$state" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+d['downloads'] = [dl for dl in d['downloads'] if dl['state'] == '$STATE_DOWNLOADING']
+print(json.dumps(d))
+")
+    write_state "$updated"
+}
+
+# ==============================================================================
+# SHA VERIFICATION
+# ==============================================================================
+
+# Verify SHA checksum
+verify_sha() {
+    local file="$1"
+    local expected_sha="$2"
+    local sha_type="${3:-sha256}"
+    
+    if [[ -z "$expected_sha" ]]; then
+        return 0
+    fi
+    
+    local actual_sha
+    case "$sha_type" in
+        sha1|SHA1)
+            actual_sha=$(sha1sum "$file" 2>/dev/null | awk '{print $1}')
+            ;;
+        sha256|SHA256)
+            actual_sha=$(sha256sum "$file" 2>/dev/null | awk '{print $1}')
+            ;;
+        sha512|SHA512)
+            actual_sha=$(sha512sum "$file" 2>/dev/null | awk '{print $1}')
+            ;;
+        md5|MD5)
+            actual_sha=$(md5sum "$file" 2>/dev/null | awk '{print $1}')
+            ;;
+        *)
+            print_error "Unknown SHA type: $sha_type"
+            return 1
+            ;;
+    esac
+    
+    if [[ "${actual_sha,,}" == "${expected_sha,,}" ]]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# ==============================================================================
+# DOWNLOAD FUNCTIONS
+# ==============================================================================
+
+# Download file with progress tracking
+download_file() {
+    local url="$1"
+    local output_file="$2"
+    local download_id="${3:-0}"
+    local temp_file="${output_file}.part"
+    local resume_from=0
+    
+    # Check if partial file exists
+    if [[ -f "$temp_file" ]]; then
+        resume_from=$(get_file_size "$temp_file")
+        if [[ $download_id -gt 0 ]]; then
+            print_info "[$download_id] Found partial download: $(format_bytes "$resume_from")"
+        else
+            print_info "Found partial download: $(format_bytes "$resume_from")"
+        fi
+    fi
+    
+    # Get remote file size
+    local remote_size
+    remote_size=$(get_remote_size "$url")
+    
+    if [[ "$remote_size" -gt 0 ]]; then
+        if [[ $download_id -gt 0 ]]; then
+            print_info "[$download_id] Remote file size: $(format_bytes "$remote_size")"
+            update_download_progress "$download_id" "$resume_from" "$remote_size"
+        else
+            print_info "Remote file size: $(format_bytes "$remote_size")"
+        fi
+    fi
+    
+    # Build curl command with progress
+    local curl_cmd=(
+        curl
+        -L
+        -C -
+        --progress-bar
+        --retry "$RETRY_COUNT"
+        --retry-delay "$RETRY_DELAY"
+        --retry-max-time 60
+        -o "$temp_file"
+        "$url"
+    )
+    
+    # Execute download - capture exit code properly using PIPESTATUS
+    "${curl_cmd[@]}" 2>&1 | while IFS= read -r line; do
+        # Parse curl progress
+        if [[ "$line" =~ ([0-9]+)% ]]; then
+            if [[ $download_id -gt 0 ]]; then
+                local current_size
+                current_size=$(get_file_size "$temp_file")
+                update_download_progress "$download_id" "$current_size" "$remote_size"
+            fi
+        fi
+        echo "$line"
+    done
+    
+    # Check curl exit status from PIPESTATUS
+    local curl_exit=${PIPESTATUS[0]}
+    
+    if [[ $curl_exit -eq 0 ]]; then
+        # Download successful
+        mv "$temp_file" "$output_file"
+        
+        if [[ $download_id -gt 0 ]]; then
+            update_download_state "$download_id" "$STATE_COMPLETED"
+            update_download_progress "$download_id" "$remote_size" "$remote_size"
+        fi
+        
+        return 0
+    else
+        if [[ $download_id -gt 0 ]]; then
+            update_download_state "$download_id" "$STATE_FAILED"
+        fi
+        return 1
+    fi
+}
+
+# Download with SHA verification
+download_with_verify() {
+    local url="$1"
+    local output="$2"
+    local sha="${3:-}"
+    local sha_type="${4:-sha256}"
+    local download_id="${5:-0}"
+    
+    if [[ $download_id -gt 0 ]]; then
+        update_download_state "$download_id" "$STATE_DOWNLOADING"
+    fi
+    
+    if download_file "$url" "$output" "$download_id"; then
+        if [[ -n "$sha" ]]; then
+            print_info "Verifying $sha_type checksum..."
+            if [[ $download_id -gt 0 ]]; then
+                update_download_state "$download_id" "$STATE_VERIFYING"
+            fi
+            
+            if verify_sha "$output" "$sha" "$sha_type"; then
+                print_success "Checksum verified!"
+                if [[ $download_id -gt 0 ]]; then
+                    update_download_state "$download_id" "$STATE_COMPLETED"
+                fi
+                return 0
+            else
+                print_error "Checksum mismatch!"
+                if [[ $download_id -gt 0 ]]; then
+                    update_download_state "$download_id" "$STATE_FAILED"
+                fi
+                return 1
+            fi
+        else
+            print_success "Download completed!"
+            return 0
+        fi
+    else
+        print_error "Download failed!"
+        return 1
+    fi
+}
+
+# Background download process
+background_download() {
+    local download_id="$1"
+    local download_info
+    download_info=$(get_download "$download_id")
+    
+    if [[ -z "$download_info" ]]; then
+        log_message "ERROR" "Download $download_id not found"
+        return 1
+    fi
+    
+    local url output sha sha_type
+    url=$(echo "$download_info" | python3 -c "import json,sys; print(json.load(sys.stdin)['url'])")
+    output=$(echo "$download_info" | python3 -c "import json,sys; print(json.load(sys.stdin)['output'])")
+    sha=$(echo "$download_info" | python3 -c "import json,sys; print(json.load(sys.stdin).get('sha', ''))")
+    sha_type=$(echo "$download_info" | python3 -c "import json,sys; print(json.load(sys.stdin).get('sha_type', 'sha256'))")
+    
+    log_message "INFO" "Starting background download $download_id: $url -> $output"
+    
+    # Store PID
+    echo "$$" > "${PID_DIR}/${download_id}.pid"
+    
+    download_with_verify "$url" "$output" "$sha" "$sha_type" "$download_id"
+    local result=$?
+    
+    # Remove PID file
+    rm -f "${PID_DIR}/${download_id}.pid"
+    
+    log_message "INFO" "Background download $download_id completed with status $result"
+    return $result
+}
+
+# Start download in background
+start_background_download() {
+    local download_id="$1"
+    
+    # Run in background
+    ( background_download "$download_id" ) &
+    local pid=$!
+    echo "$pid" > "${PID_DIR}/${download_id}.pid"
+    
+    return 0
+}
+
+# Stop download
+stop_download() {
+    local download_id="$1"
+    local pid_file="${PID_DIR}/${download_id}.pid"
+    
+    if [[ -f "$pid_file" ]]; then
+        local pid
+        pid=$(cat "$pid_file")
+        if kill -0 "$pid" 2>/dev/null; then
+            kill "$pid" 2>/dev/null || true
+            rm -f "$pid_file"
+            update_download_state "$download_id" "$STATE_PAUSED"
+            print_success "Download $download_id stopped"
+            return 0
+        fi
+    fi
+    
+    update_download_state "$download_id" "$STATE_PAUSED"
+    print_warning "Download $download_id was not running"
+    return 0
+}
+
+# Resume download
+resume_download() {
+    local download_id="$1"
+    local download_info
+    download_info=$(get_download "$download_id")
+    
+    if [[ -z "$download_info" ]]; then
+        print_error "Download $download_id not found"
+        return 1
+    fi
+    
+    local current_state
+    current_state=$(echo "$download_info" | python3 -c "import json,sys; print(json.load(sys.stdin)['state'])")
+    
+    if [[ "$current_state" == "$STATE_DOWNLOADING" ]]; then
+        print_warning "Download $download_id is already running"
+        return 0
+    fi
+    
+    if [[ "$current_state" == "$STATE_COMPLETED" ]]; then
+        print_warning "Download $download_id is already completed"
+        return 0
+    fi
+    
+    update_download_state "$download_id" "$STATE_QUEUED"
+    start_background_download "$download_id"
+    print_success "Download $download_id resumed"
+    return 0
+}
+
+# ==============================================================================
+# MANIFEST FILE SUPPORT
+# ==============================================================================
+
+# Parse manifest file
+parse_manifest() {
+    local manifest_file="$1"
+    
+    if [[ ! -f "$manifest_file" ]]; then
+        print_error "Manifest file not found: $manifest_file"
+        return 1
+    fi
+    
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        # Skip empty lines and comments
+        [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+        
+        # Parse line: URL [output] [sha_type:sha]
+        local url output sha sha_type
+        
+        # Simple space-separated parsing
+        read -r url output sha_spec <<< "$line"
+        
+        # Default output to filename from URL
+        if [[ -z "$output" ]]; then
+            output=$(get_filename_from_url "$url")
+        fi
+        
+        # Parse SHA specification (format: sha256:abc123...)
+        if [[ -n "$sha_spec" && "$sha_spec" =~ ^([^:]+):(.+)$ ]]; then
+            sha_type="${BASH_REMATCH[1]}"
+            sha="${BASH_REMATCH[2]}"
+        else
+            sha=""
+            sha_type=""
+        fi
+        
+        # Add to queue
+        local id
+        id=$(add_download "$url" "$output" "$sha" "$sha_type")
+        print_info "Added download #$id: $output"
+        
+    done < "$manifest_file"
+}
+
+# ==============================================================================
+# PARALLEL DOWNLOAD MANAGEMENT
+# ==============================================================================
+
+# Count active downloads
+count_active_downloads() {
+    local count=0
+    for pid_file in "${PID_DIR}"/*.pid; do
+        [[ -f "$pid_file" ]] || continue
+        local pid
+        pid=$(cat "$pid_file")
+        if kill -0 "$pid" 2>/dev/null; then
+            ((count++))
+        else
+            rm -f "$pid_file"
+        fi
+    done
+    echo "$count"
+}
+
+# Process download queue
+process_queue() {
+    while true; do
+        local active
+        active=$(count_active_downloads)
+        
+        if [[ $active -ge $MAX_PARALLEL_DOWNLOADS ]]; then
+            sleep 1
+            continue
+        fi
+        
+        # Find next queued download
+        local queued
+        queued=$(get_downloads_by_state "$STATE_QUEUED" | head -1)
+        
+        if [[ -z "$queued" ]]; then
+            # No more queued downloads
+            if [[ $active -eq 0 ]]; then
+                break
+            fi
+            sleep 1
+            continue
+        fi
+        
+        local download_id
+        download_id=$(echo "$queued" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
+        
+        start_background_download "$download_id"
+        sleep 0.5
+    done
+}
+
+# ==============================================================================
+# CLI DISPLAY FUNCTIONS
+# ==============================================================================
+
+# Show download status
+show_status() {
+    echo -e "\n${BOLD}${CYAN}═══════════════════════════════════════════════════════════════${NC}"
+    echo -e "${BOLD}${WHITE}                    SafeDownload Status                        ${NC}"
+    echo -e "${BOLD}${CYAN}═══════════════════════════════════════════════════════════════${NC}\n"
+    
+    local downloads
+    downloads=$(list_downloads)
+    
+    if [[ -z "$downloads" ]]; then
+        echo -e "${GRAY}No downloads in queue${NC}\n"
+        return
+    fi
+    
+    echo "$downloads" | while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        
+        local id state output progress downloaded size
+        id=$(echo "$line" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
+        state=$(echo "$line" | python3 -c "import json,sys; print(json.load(sys.stdin)['state'])")
+        output=$(echo "$line" | python3 -c "import json,sys; print(json.load(sys.stdin)['output'])")
+        progress=$(echo "$line" | python3 -c "import json,sys; print(json.load(sys.stdin).get('progress', 0))")
+        downloaded=$(echo "$line" | python3 -c "import json,sys; print(json.load(sys.stdin).get('downloaded', 0))")
+        size=$(echo "$line" | python3 -c "import json,sys; print(json.load(sys.stdin).get('size', 0))")
+        
+        # State color
+        local state_color
+        case "$state" in
+            "$STATE_QUEUED")     state_color="$YELLOW" ;;
+            "$STATE_DOWNLOADING") state_color="$CYAN" ;;
+            "$STATE_PAUSED")     state_color="$MAGENTA" ;;
+            "$STATE_COMPLETED")  state_color="$GREEN" ;;
+            "$STATE_FAILED")     state_color="$RED" ;;
+            "$STATE_VERIFYING")  state_color="$BLUE" ;;
+            *)                   state_color="$WHITE" ;;
+        esac
+        
+        # Progress bar
+        local bar_width=30
+        local filled=$(( progress * bar_width / 100 ))
+        local empty=$(( bar_width - filled ))
+        local bar=""
+        for ((i=0; i<filled; i++)); do bar+="█"; done
+        for ((i=0; i<empty; i++)); do bar+="░"; done
+        
+        echo -e "${BOLD}#${id}${NC} ${WHITE}${output}${NC}"
+        echo -e "   State: ${state_color}${state}${NC}"
+        echo -e "   [${CYAN}${bar}${NC}] ${progress}%  $(format_bytes "$downloaded") / $(format_bytes "$size")"
+        echo ""
+    done
+}
+
+# Show progress bar inline
+show_progress_bar() {
+    local current=$1
+    local total=$2
+    local width=${3:-50}
+    local download_id=${4:-""}
+    
+    if [[ $total -eq 0 ]]; then
+        return
+    fi
+    
+    local percent=$(( current * 100 / total ))
+    local filled=$(( percent * width / 100 ))
+    local empty=$(( width - filled ))
+    
+    local bar=""
+    for ((i=0; i<filled; i++)); do bar+="█"; done
+    for ((i=0; i<empty; i++)); do bar+="░"; done
+    
+    local prefix=""
+    [[ -n "$download_id" ]] && prefix="[$download_id] "
+    
+    printf "\r${prefix}[${CYAN}%s${NC}] %3d%% %s / %s" \
+        "$bar" "$percent" "$(format_bytes "$current")" "$(format_bytes "$total")"
+}
+
+# ==============================================================================
+# TERMINAL UI (TUI) MODE
+# ==============================================================================
+
+# TUI variables
+TUI_RUNNING=false
+TUI_REFRESH_RATE=1
+TERM_LINES=0
+TERM_COLS=0
+LEFT_COL_WIDTH=0
+RIGHT_COL_WIDTH=0
+COMMAND_OUTPUT=""
+MAX_OUTPUT_LINES=100
+
+# Initialize TUI
+init_tui() {
+    TUI_RUNNING=true
+    
+    # Get terminal size
+    TERM_LINES=$(tput lines)
+    TERM_COLS=$(tput cols)
+    
+    # Calculate column widths (60/40 split)
+    LEFT_COL_WIDTH=$(( TERM_COLS * 60 / 100 ))
+    RIGHT_COL_WIDTH=$(( TERM_COLS - LEFT_COL_WIDTH - 1 ))
+    
+    # Hide cursor
+    tput civis
+    
+    # Clear screen
+    clear
+    
+    # Set up signal handlers
+    trap 'cleanup_tui' EXIT INT TERM
+}
+
+# Cleanup TUI
+cleanup_tui() {
+    TUI_RUNNING=false
+    tput cnorm  # Show cursor
+    tput clear
+    echo "SafeDownload TUI closed"
+}
+
+# Draw border character
+draw_box() {
+    local row=$1
+    local col=$2
+    local char=$3
+    tput cup "$row" "$col"
+    echo -n "$char"
+}
+
+# Draw horizontal line
+draw_hline() {
+    local row=$1
+    local start_col=$2
+    local length=$3
+    tput cup "$row" "$start_col"
+    # Use printf with width specifier for efficiency
+    printf '%*s' "$length" '' | tr ' ' '─'
+}
+
+# Draw vertical line
+draw_vline() {
+    local col=$1
+    local start_row=$2
+    local length=$3
+    for ((i=0; i<length; i++)); do
+        tput cup $((start_row + i)) "$col"
+        echo -n "│"
+    done
+}
+
+# Draw TUI layout
+draw_tui_layout() {
+    # Get current terminal size
+    TERM_LINES=$(tput lines)
+    TERM_COLS=$(tput cols)
+    LEFT_COL_WIDTH=$(( TERM_COLS * 60 / 100 ))
+    RIGHT_COL_WIDTH=$(( TERM_COLS - LEFT_COL_WIDTH - 1 ))
+    
+    # Clear screen
+    clear
+    
+    # Top border
+    tput cup 0 0
+    echo -n "╔"
+    printf '═%.0s' $(seq 1 $((LEFT_COL_WIDTH - 2)))
+    echo -n "╦"
+    printf '═%.0s' $(seq 1 $((RIGHT_COL_WIDTH - 1)))
+    echo -n "╗"
+    
+    # Header - Left column
+    tput cup 1 0
+    echo -n "║"
+    printf " ${BOLD}${CYAN}Command Output${NC}%*s" $((LEFT_COL_WIDTH - 17)) ""
+    
+    # Header - Right column
+    echo -n "║"
+    printf " ${BOLD}${CYAN}Download Queue${NC}%*s" $((RIGHT_COL_WIDTH - 16)) ""
+    echo -n "║"
+    
+    # Header separator
+    tput cup 2 0
+    echo -n "╠"
+    printf '═%.0s' $(seq 1 $((LEFT_COL_WIDTH - 2)))
+    echo -n "╬"
+    printf '═%.0s' $(seq 1 $((RIGHT_COL_WIDTH - 1)))
+    echo -n "╣"
+    
+    # Side borders
+    for ((i=3; i<TERM_LINES-4; i++)); do
+        tput cup "$i" 0
+        echo -n "║"
+        tput cup "$i" $((LEFT_COL_WIDTH - 1))
+        echo -n "║"
+        tput cup "$i" $((TERM_COLS - 1))
+        echo -n "║"
+    done
+    
+    # Input box separator
+    tput cup $((TERM_LINES - 4)) 0
+    echo -n "╠"
+    printf '═%.0s' $(seq 1 $((LEFT_COL_WIDTH - 2)))
+    echo -n "╬"
+    printf '═%.0s' $(seq 1 $((RIGHT_COL_WIDTH - 1)))
+    echo -n "╣"
+    
+    # Input label
+    tput cup $((TERM_LINES - 3)) 0
+    echo -n "║"
+    printf " ${BOLD}${GREEN}Input:${NC}%*s" $((LEFT_COL_WIDTH - 9)) ""
+    echo -n "║"
+    printf "%*s" $((RIGHT_COL_WIDTH - 1)) ""
+    echo -n "║"
+    
+    # Input box
+    tput cup $((TERM_LINES - 2)) 0
+    echo -n "║"
+    printf " > %*s" $((LEFT_COL_WIDTH - 5)) ""
+    echo -n "║"
+    printf "%*s" $((RIGHT_COL_WIDTH - 1)) ""
+    echo -n "║"
+    
+    # Bottom border
+    tput cup $((TERM_LINES - 1)) 0
+    echo -n "╚"
+    printf '═%.0s' $(seq 1 $((LEFT_COL_WIDTH - 2)))
+    echo -n "╩"
+    printf '═%.0s' $(seq 1 $((RIGHT_COL_WIDTH - 1)))
+    echo -n "╝"
+}
+
+# Update command output area
+update_command_output() {
+    local max_lines=$((TERM_LINES - 8))
+    local output_lines
+    
+    # Get last N lines of output
+    IFS=$'\n' read -d '' -ra output_lines <<< "$COMMAND_OUTPUT" || true
+    local start_line=$(( ${#output_lines[@]} - max_lines ))
+    [[ $start_line -lt 0 ]] && start_line=0
+    
+    # Clear and redraw output area
+    for ((i=0; i<max_lines; i++)); do
+        tput cup $((3 + i)) 1
+        printf "%*s" $((LEFT_COL_WIDTH - 3)) ""
+        
+        local line_idx=$((start_line + i))
+        if [[ $line_idx -lt ${#output_lines[@]} ]]; then
+            tput cup $((3 + i)) 2
+            # Truncate line if too long
+            local line="${output_lines[$line_idx]}"
+            if [[ ${#line} -gt $((LEFT_COL_WIDTH - 4)) ]]; then
+                line="${line:0:$((LEFT_COL_WIDTH - 7))}..."
+            fi
+            echo -n "$line"
+        fi
+    done
+}
+
+# Update download queue display
+update_queue_display() {
+    local max_lines=$((TERM_LINES - 8))
+    local col_start=$((LEFT_COL_WIDTH + 1))
+    local col_width=$((RIGHT_COL_WIDTH - 2))
+    
+    # Clear queue area
+    for ((i=0; i<max_lines; i++)); do
+        tput cup $((3 + i)) "$col_start"
+        printf "%*s" "$col_width" ""
+    done
+    
+    # Get downloads
+    local downloads
+    downloads=$(list_downloads)
+    
+    local line_num=0
+    echo "$downloads" | while IFS= read -r dl; do
+        [[ -z "$dl" ]] && continue
+        [[ $line_num -ge $((max_lines - 2)) ]] && break
+        
+        local id state output progress downloaded size
+        id=$(echo "$dl" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
+        state=$(echo "$dl" | python3 -c "import json,sys; print(json.load(sys.stdin)['state'])")
+        output=$(echo "$dl" | python3 -c "import json,sys; print(json.load(sys.stdin)['output'])")
+        progress=$(echo "$dl" | python3 -c "import json,sys; print(json.load(sys.stdin).get('progress', 0))")
+        
+        # State indicator
+        local state_char
+        case "$state" in
+            "$STATE_QUEUED")     state_char="${YELLOW}◯${NC}" ;;
+            "$STATE_DOWNLOADING") state_char="${CYAN}↓${NC}" ;;
+            "$STATE_PAUSED")     state_char="${MAGENTA}⏸${NC}" ;;
+            "$STATE_COMPLETED")  state_char="${GREEN}✓${NC}" ;;
+            "$STATE_FAILED")     state_char="${RED}✗${NC}" ;;
+            *)                   state_char="?" ;;
+        esac
+        
+        # Truncate filename
+        local display_name="$output"
+        if [[ ${#display_name} -gt $((col_width - 15)) ]]; then
+            display_name="${display_name:0:$((col_width - 18))}..."
+        fi
+        
+        tput cup $((3 + line_num)) "$col_start"
+        echo -ne " ${state_char} #${id} ${display_name}"
+        
+        ((line_num++))
+        
+        # Progress bar
+        if [[ "$state" == "$STATE_DOWNLOADING" ]]; then
+            local bar_width=$((col_width - 10))
+            local filled=$((progress * bar_width / 100))
+            local empty=$((bar_width - filled))
+            
+            tput cup $((3 + line_num)) "$col_start"
+            echo -n "   ["
+            for ((j=0; j<filled; j++)); do echo -n "█"; done
+            for ((j=0; j<empty; j++)); do echo -n "░"; done
+            echo -n "] ${progress}%"
+            
+            ((line_num++))
+        fi
+        
+        ((line_num++))
+    done
+}
+
+# Add output line
+add_output() {
+    local message="$1"
+    COMMAND_OUTPUT+="$message"$'\n'
+    
+    # Trim to max lines
+    local line_count
+    line_count=$(echo -n "$COMMAND_OUTPUT" | grep -c '^' || echo 0)
+    if [[ $line_count -gt $MAX_OUTPUT_LINES ]]; then
+        COMMAND_OUTPUT=$(echo "$COMMAND_OUTPUT" | tail -n $MAX_OUTPUT_LINES)
+    fi
+}
+
+# Process TUI command
+process_tui_command() {
+    local input="$1"
+    
+    # Check if it's a URL (simple check)
+    if [[ "$input" =~ ^https?:// ]]; then
+        local filename
+        filename=$(get_filename_from_url "$input")
+        local id
+        id=$(add_download "$input" "$filename" "" "")
+        add_output "Added download #$id: $filename"
+        start_background_download "$id"
+        return
+    fi
+    
+    # Parse slash commands
+    case "$input" in
+        /help|/h)
+            add_output "${BOLD}Available Commands:${NC}"
+            add_output "  URL            - Add URL to download queue"
+            add_output "  /help, /h      - Show this help"
+            add_output "  /stop N        - Stop download #N"
+            add_output "  /resume N      - Resume download #N"
+            add_output "  /clear N       - Remove download #N"
+            add_output "  /clear         - Clear completed downloads"
+            add_output "  /clear all     - Clear all except in-progress"
+            add_output "  /list, /ls     - List all downloads"
+            add_output "  /status, /s    - Show detailed status"
+            add_output "  /parallel N    - Set max parallel downloads"
+            add_output "  /manifest FILE - Load manifest file"
+            add_output "  /quit, /q      - Exit SafeDownload"
+            ;;
+        
+        /stop\ *)
+            local id="${input#/stop }"
+            if [[ "$id" =~ ^[0-9]+$ ]]; then
+                stop_download "$id"
+                add_output "Stopped download #$id"
+            else
+                add_output "${RED}Invalid ID: $id${NC}"
+            fi
+            ;;
+        
+        /resume\ *)
+            local id="${input#/resume }"
+            if [[ "$id" =~ ^[0-9]+$ ]]; then
+                resume_download "$id"
+                add_output "Resumed download #$id"
+            else
+                add_output "${RED}Invalid ID: $id${NC}"
+            fi
+            ;;
+        
+        /clear\ all)
+            clear_all_except_inprogress
+            add_output "Cleared all stopped and completed downloads"
+            ;;
+        
+        /clear\ *)
+            local id="${input#/clear }"
+            if [[ "$id" =~ ^[0-9]+$ ]]; then
+                remove_download "$id"
+                add_output "Removed download #$id"
+            else
+                add_output "${RED}Invalid ID: $id${NC}"
+            fi
+            ;;
+        
+        /clear)
+            clear_completed
+            add_output "Cleared completed downloads"
+            ;;
+        
+        /list|/ls)
+            add_output "Downloads:"
+            list_downloads | while IFS= read -r dl; do
+                [[ -z "$dl" ]] && continue
+                local id state output
+                id=$(echo "$dl" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
+                state=$(echo "$dl" | python3 -c "import json,sys; print(json.load(sys.stdin)['state'])")
+                output=$(echo "$dl" | python3 -c "import json,sys; print(json.load(sys.stdin)['output'])")
+                add_output "  #$id [$state] $output"
+            done
+            ;;
+        
+        /status|/s)
+            add_output "Detailed status:"
+            list_downloads | while IFS= read -r dl; do
+                [[ -z "$dl" ]] && continue
+                local id state output progress
+                id=$(echo "$dl" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
+                state=$(echo "$dl" | python3 -c "import json,sys; print(json.load(sys.stdin)['state'])")
+                output=$(echo "$dl" | python3 -c "import json,sys; print(json.load(sys.stdin)['output'])")
+                progress=$(echo "$dl" | python3 -c "import json,sys; print(json.load(sys.stdin).get('progress', 0))")
+                add_output "  #$id [$state] $output - ${progress}%"
+            done
+            ;;
+        
+        /parallel\ *)
+            local num="${input#/parallel }"
+            if [[ "$num" =~ ^[0-9]+$ ]] && [[ "$num" -ge 1 ]] && [[ "$num" -le 10 ]]; then
+                MAX_PARALLEL_DOWNLOADS=$num
+                add_output "Max parallel downloads set to $num"
+            else
+                add_output "${RED}Invalid number (1-10): $num${NC}"
+            fi
+            ;;
+        
+        /manifest\ *)
+            local file="${input#/manifest }"
+            if [[ -f "$file" ]]; then
+                add_output "Loading manifest: $file"
+                parse_manifest "$file"
+                add_output "Manifest loaded, starting downloads..."
+                process_queue &
+            else
+                add_output "${RED}File not found: $file${NC}"
+            fi
+            ;;
+        
+        /quit|/q)
+            cleanup_tui
+            exit 0
+            ;;
+        
+        "")
+            ;;
+        
+        *)
+            add_output "${RED}Unknown command: $input${NC}"
+            add_output "Type /help for available commands"
+            ;;
+    esac
+}
+
+# TUI main loop
+run_tui() {
+    init_tui
+    draw_tui_layout
+    
+    add_output "${GREEN}Welcome to SafeDownload TUI!${NC}"
+    add_output "Type a URL to download or /help for commands"
+    add_output ""
+    
+    # Auto-resume interrupted downloads
+    local interrupted
+    interrupted=$(get_downloads_by_state "$STATE_DOWNLOADING")
+    if [[ -n "$interrupted" ]]; then
+        add_output "Found interrupted downloads, resuming..."
+        echo "$interrupted" | while IFS= read -r dl; do
+            [[ -z "$dl" ]] && continue
+            local id
+            id=$(echo "$dl" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
+            update_download_state "$id" "$STATE_QUEUED"
+        done
+        process_queue &
+    fi
+    
+    local input=""
+    
+    while $TUI_RUNNING; do
+        # Update displays
+        update_command_output
+        update_queue_display
+        
+        # Position cursor in input box
+        tput cup $((TERM_LINES - 2)) 4
+        echo -n "$input"
+        printf "%*s" $((LEFT_COL_WIDTH - 5 - ${#input})) ""
+        tput cup $((TERM_LINES - 2)) $((4 + ${#input}))
+        
+        # Read input with timeout
+        tput cnorm  # Show cursor
+        if read -t "$TUI_REFRESH_RATE" -r -n 1 char; then
+            case "$char" in
+                $'\177'|$'\b')  # Backspace
+                    [[ ${#input} -gt 0 ]] && input="${input:0:-1}"
+                    ;;
+                "")  # Enter
+                    if [[ -n "$input" ]]; then
+                        process_tui_command "$input"
+                        input=""
+                    fi
+                    ;;
+                *)
+                    input+="$char"
+                    ;;
+            esac
+        fi
+        tput civis  # Hide cursor
+    done
+}
+
+# ==============================================================================
+# CLI MODE
+# ==============================================================================
+
+# Display usage
+usage() {
+    cat << EOF
+${BOLD}SafeDownload v${VERSION}${NC} - A fully featured CLI download manager
+
+${BOLD}USAGE:${NC}
+    safedownload [OPTIONS] [URL] [OUTPUT]
+    safedownload -g                        Launch terminal UI mode
+
+${BOLD}OPTIONS:${NC}
+    -h, --help              Show this help message
+    -v, --version           Show version
+    -g, --gui               Launch terminal UI mode
+    -s, --status            Show download status
+    -l, --list              List all downloads
+    -m, --manifest FILE     Load URLs from manifest file
+    -p, --parallel N        Set max parallel downloads (default: 3)
+    --sha256 HASH           Verify download with SHA256
+    --sha512 HASH           Verify download with SHA512
+    --sha1 HASH             Verify download with SHA1
+    --md5 HASH              Verify download with MD5
+    --stop ID               Stop download by ID
+    --resume ID             Resume download by ID
+    --clear [ID|all]        Clear downloads
+    --bg                    Run download in background
+
+${BOLD}EXAMPLES:${NC}
+    safedownload https://example.com/file.zip
+    safedownload https://example.com/file.zip myfile.zip
+    safedownload https://example.com/file.zip --sha256 abc123...
+    safedownload -m urls.txt -p 5
+    safedownload -g
+
+${BOLD}MANIFEST FILE FORMAT:${NC}
+    # Comment lines start with #
+    https://example.com/file1.zip
+    https://example.com/file2.zip output.zip
+    https://example.com/file3.zip file3.zip sha256:abc123...
+
+${BOLD}STATE DIRECTORY:${NC}
+    ~/.safedownload/
+
+EOF
+    exit 0
+}
+
+# Version
+show_version() {
+    echo "SafeDownload v${VERSION}"
+    exit 0
+}
+
+# CLI single download with progress
+cli_download() {
+    local url="$1"
+    local output="$2"
+    local sha="$3"
+    local sha_type="$4"
+    local background="$5"
+    
+    echo -e "${BOLD}${CYAN}═══════════════════════════════════════════════════════════════${NC}"
+    echo -e "${BOLD}${WHITE}                    SafeDownload v${VERSION}                        ${NC}"
+    echo -e "${BOLD}${CYAN}═══════════════════════════════════════════════════════════════${NC}"
+    echo ""
+    
+    print_info "URL: $url"
+    print_info "Output: $output"
+    [[ -n "$sha" ]] && print_info "Checksum ($sha_type): ${sha:0:16}..."
+    echo ""
+    
+    # Check resume support
+    if check_resume_support "$url"; then
+        print_success "Server supports resumable downloads"
+    else
+        print_warning "Server may not support resumable downloads"
+    fi
+    echo ""
+    
+    # Add to state
+    local download_id
+    download_id=$(add_download "$url" "$output" "$sha" "$sha_type")
+    print_info "Download ID: #$download_id"
+    echo ""
+    
+    if [[ "$background" == "true" ]]; then
+        start_background_download "$download_id"
+        print_success "Download started in background"
+        print_info "Use 'safedownload --status' to check progress"
+        return 0
+    fi
+    
+    # Foreground download with progress
+    download_with_verify "$url" "$output" "$sha" "$sha_type" "$download_id"
+    local result=$?
+    
+    echo ""
+    if [[ $result -eq 0 ]]; then
+        print_success "All done! 🎉"
+    else
+        print_error "Download failed"
+    fi
+    
+    return $result
+}
+
+# ==============================================================================
+# MAIN
+# ==============================================================================
+
+main() {
+    # Initialize state directory
+    init_state_dir
+    
+    # Parse arguments
+    local url=""
+    local output=""
+    local sha=""
+    local sha_type=""
+    local gui_mode=false
+    local show_status_flag=false
+    local list_flag=false
+    local manifest_file=""
+    local parallel=""
+    local stop_id=""
+    local resume_id=""
+    local clear_arg=""
+    local background=false
+    
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -h|--help)
+                usage
+                ;;
+            -v|--version)
+                show_version
+                ;;
+            -g|--gui)
+                gui_mode=true
+                shift
+                ;;
+            -s|--status)
+                show_status_flag=true
+                shift
+                ;;
+            -l|--list)
+                list_flag=true
+                shift
+                ;;
+            -m|--manifest)
+                manifest_file="$2"
+                shift 2
+                ;;
+            -p|--parallel)
+                parallel="$2"
+                MAX_PARALLEL_DOWNLOADS="$parallel"
+                shift 2
+                ;;
+            --sha256)
+                sha="$2"
+                sha_type="sha256"
+                shift 2
+                ;;
+            --sha512)
+                sha="$2"
+                sha_type="sha512"
+                shift 2
+                ;;
+            --sha1)
+                sha="$2"
+                sha_type="sha1"
+                shift 2
+                ;;
+            --md5)
+                sha="$2"
+                sha_type="md5"
+                shift 2
+                ;;
+            --stop)
+                stop_id="$2"
+                shift 2
+                ;;
+            --resume)
+                resume_id="$2"
+                shift 2
+                ;;
+            --clear)
+                if [[ -n "${2:-}" && ! "$2" =~ ^- ]]; then
+                    clear_arg="$2"
+                    shift 2
+                else
+                    clear_arg="completed"
+                    shift
+                fi
+                ;;
+            --bg)
+                background=true
+                shift
+                ;;
+            -*)
+                print_error "Unknown option: $1"
+                echo "Use 'safedownload --help' for usage"
+                exit 1
+                ;;
+            *)
+                if [[ -z "$url" ]]; then
+                    url="$1"
+                elif [[ -z "$output" ]]; then
+                    output="$1"
+                fi
+                shift
+                ;;
+        esac
+    done
+    
+    # Handle GUI mode
+    if $gui_mode; then
+        run_tui
+        exit 0
+    fi
+    
+    # Handle status
+    if $show_status_flag; then
+        show_status
+        exit 0
+    fi
+    
+    # Handle list
+    if $list_flag; then
+        list_downloads | while IFS= read -r dl; do
+            [[ -z "$dl" ]] && continue
+            local id state out
+            id=$(echo "$dl" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
+            state=$(echo "$dl" | python3 -c "import json,sys; print(json.load(sys.stdin)['state'])")
+            out=$(echo "$dl" | python3 -c "import json,sys; print(json.load(sys.stdin)['output'])")
+            echo "#$id [$state] $out"
+        done
+        exit 0
+    fi
+    
+    # Handle stop
+    if [[ -n "$stop_id" ]]; then
+        stop_download "$stop_id"
+        exit $?
+    fi
+    
+    # Handle resume
+    if [[ -n "$resume_id" ]]; then
+        resume_download "$resume_id"
+        exit $?
+    fi
+    
+    # Handle clear
+    if [[ -n "$clear_arg" ]]; then
+        case "$clear_arg" in
+            all)
+                echo -n "Clear all stopped and completed downloads? (y/N): "
+                read -r confirm
+                if [[ "$confirm" =~ ^[Yy]$ ]]; then
+                    clear_all_except_inprogress
+                    print_success "Cleared all stopped and completed downloads"
+                fi
+                ;;
+            completed)
+                clear_completed
+                print_success "Cleared completed downloads"
+                ;;
+            *)
+                if [[ "$clear_arg" =~ ^[0-9]+$ ]]; then
+                    remove_download "$clear_arg"
+                    print_success "Removed download #$clear_arg"
+                else
+                    print_error "Invalid clear argument: $clear_arg"
+                    exit 1
+                fi
+                ;;
+        esac
+        exit 0
+    fi
+    
+    # Handle manifest file
+    if [[ -n "$manifest_file" ]]; then
+        parse_manifest "$manifest_file"
+        print_info "Starting download queue..."
+        process_queue
+        print_success "All downloads completed!"
+        exit 0
+    fi
+    
+    # Handle single URL download
+    if [[ -n "$url" ]]; then
+        # Default output to filename from URL
+        if [[ -z "$output" ]]; then
+            output=$(get_filename_from_url "$url")
+        fi
+        
+        cli_download "$url" "$output" "$sha" "$sha_type" "$background"
+        exit $?
+    fi
+    
+    # No arguments - show help
+    usage
+}
+
+# Run main
+main "$@"
