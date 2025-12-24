@@ -67,8 +67,8 @@ get_filename_from_url() {
     local url="$1"
     local filename
     
-    # Extract filename from URL
-    filename=$(basename "$url" | sed 's/\?.*$//')
+    # Extract filename from URL (remove query params and fragments)
+    filename=$(basename "$url" | sed 's/[?#].*$//')
     
     # If filename is empty or looks invalid, use a default
     if [[ -z "$filename" || "$filename" == "/" ]]; then
@@ -236,8 +236,14 @@ main() {
         output_file=$(get_filename_from_url "$url")
     fi
     
+    # Sanitize URL for display (hide credentials)
+    local display_url="$url"
+    if [[ "$url" =~ .*://[^@]+@.* ]]; then
+        display_url=$(echo "$url" | sed 's|://[^@]*@|://***:***@|')
+    fi
+    
     print_info "Resumable Download Manager"
-    print_info "URL: $url"
+    print_info "URL: $display_url"
     print_info "Output file: $output_file"
     echo ""
     

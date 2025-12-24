@@ -78,8 +78,8 @@ required_functions=(
 
 all_functions_exist=true
 for func in "${required_functions[@]}"; do
-    # More flexible pattern to handle various function syntax styles
-    if grep -qE "^[[:space:]]*${func}[[:space:]]*\(\)" download.sh; then
+    # Check for function definition (simple pattern that works across all grep implementations)
+    if grep -E "^${func}\(\)|^function ${func}" download.sh > /dev/null 2>&1; then
         echo "  ✓ Function $func exists"
     else
         echo "  ✗ Function $func missing"
