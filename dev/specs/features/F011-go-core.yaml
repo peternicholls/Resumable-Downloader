@@ -1,0 +1,764 @@
+metadata:
+  id: "F011"
+  name: "Go Core Library"
+  version: "1.0.0"
+  sprint: "3-5"
+  status: "planned"
+  priority: "P0"
+  story_points: 21
+  created: "2025-12-25"
+  updated: "2025-12-25"
+
+description: |
+  Migrate SafeDownload core logic from Bash/Python to compiled Go binary,
+  establishing a performant, type-safe foundation for future features while
+  maintaining 100% backward compatibility with existing CLI, state files,
+  and user workflows.
+
+  This is the MAJOR version bump (v0.2.0 → v1.0.0) implementing Constitution
+  Principle VIII (Polyglot Architecture), replacing interpretation overhead
+  with native performance and enabling advanced features like Bubble Tea TUI.
+
+constitution_compliance:
+  principles:
+    - id: "VIII"
+      name: "Polyglot Architecture & Forward Compatibility"
+      notes: |
+        Core migration from Bash/Python to Go as planned.
+        Maintains shell wrapper for zero-config compatibility.
+
+    - id: "II"
+      name: "Zero-Configuration"
+      notes: |
+        Compiled binary bundled with shell wrapper.
+        Users never know internals changed (transparent upgrade).
+
+  gates:
+    - gate: "CLI Compatibility"
+      requirement: "100% backward compatibility with v0.2.x CLI"
+      test: "tests/e2e/cli_compatibility_test.bats (run full v0.2.x test suite)"
+
+    - gate: "State Compatibility"
+      requirement: "v0.2.x state files load successfully"
+      test: "tests/integration/state_migration_test.go"
+
+    - gate: "Performance"
+      requirement: "Download throughput ≥ v0.2.x (no regression)"
+      test: "tests/benchmark/throughput_test.go"
+
+    - gate: "Platform Support"
+      requirement: "Tier 1 platforms (macOS, Ubuntu, Debian) supported"
+      test: "GitHub Actions multi-platform CI"
+
+user_stories:
+  - id: "US011-1"
+    priority: "P0"
+    title: "Transparent Go core migration"
+    description: |
+      As a SafeDownload user,
+      I want to upgrade to v1.0.0 without changing my workflow,
+      So that I benefit from Go performance without learning new commands.
+
+    acceptance_criteria:
+      - "GIVEN v0.2.x user, WHEN upgrades to v1.0.0, THEN all commands work identically"
+      - "GIVEN existing state file, WHEN v1.0.0 loads, THEN downloads preserved"
+      - "GIVEN shell wrapper, WHEN invoked, THEN calls Go binary transparently"
+      - "GIVEN Go binary missing, WHEN wrapper runs, THEN clear error with install instructions"
+
+    independent_test: |
+      1. Install v0.2.x, create state with downloads
+      2. Upgrade to v1.0.0 (install Go binary)
+      3. Run: safedownload list
+      4. Verify: All downloads from v0.2.x appear
+      5. Run: safedownload add https://example.com/file.zip
+      6. Verify: Download added successfully (same UX as v0.2.x)
+      7. Check: which safedownload
+      8. Verify: Still points to /usr/local/bin/safedownload (wrapper)
+
+    definition_of_done:
+      - "Go binary compiled: safedownload-core"
+      - "Shell wrapper updated to call safedownload-core"
+      - "v0.2.x state files load in Go core"
+      - "CLI compatibility test suite passes 100%"
+      - "Documentation updated with architecture change"
+
+  - id: "US011-2"
+    priority: "P0"
+    title: "Download engine in Go"
+    description: |
+      As a developer,
+      I want download logic (resume, checksum, rate limiting) in Go,
+      So that we have a maintainable, testable, performant core.
+
+    acceptance_criteria:
+      - "GIVEN download task, WHEN Go engine executes, THEN resumable via Range headers"
+      - "GIVEN checksum verification, WHEN implemented in Go, THEN 10x faster than shasum"
+      - "GIVEN rate limiting, WHEN enforced, THEN accurate to ±5% of target"
+      - "GIVEN concurrent downloads, WHEN running, THEN no race conditions (go test -race passes)"
+
+    independent_test: |
+      1. Run: safedownload add --checksum sha256:abc123... https://example.com/large.iso
+      2. Interrupt download (Ctrl+C) after 50% progress
+      3. Run: safedownload resume
+      4. Verify: Download continues from 50% (Range header sent)
+      5. Wait for completion
+      6. Verify: Checksum verified successfully
+      7. Check: safedownload.log for Go binary output
+
+    definition_of_done:
+      - "pkg/downloader implemented (resumable HTTP downloads)"
+      - "pkg/checksum implemented (SHA256, SHA512, MD5)"
+      - "pkg/ratelimit implemented (token bucket algorithm)"
+      - "Unit tests: 80%+ coverage per constitution"
+      - "Integration tests: full download lifecycle"
+      - "Benchmark tests: verify performance ≥ v0.2.x"
+
+  - id: "US011-3"
+    priority: "P0"
+    title: "State management in Go"
+    description: |
+      As a developer,
+      I want state persistence (queue, config, logs) managed by Go,
+      So that we have type-safe, validated, versioned storage.
+
+    acceptance_criteria:
+      - "GIVEN state.json, WHEN loaded by Go, THEN validated against schema"
+      - "GIVEN invalid state, WHEN detected, THEN clear error (no silent corruption)"
+      - "GIVEN state update, WHEN saved, THEN atomic write (temp file → rename)"
+      - "GIVEN concurrent access, WHEN multiple instances, THEN file locking prevents corruption"
+
+    independent_test: |
+      1. Run: safedownload add https://example.com/file1.zip
+      2. Manually corrupt state.json (invalid JSON)
+      3. Run: safedownload list
+      4. Verify: Error message like "state file corrupted: unexpected EOF at line 5"
+      5. Fix state.json
+      6. Run: safedownload add https://example.com/file2.zip
+      7. Verify: State saved successfully (atomic write)
+
+    definition_of_done:
+      - "pkg/state implemented (State struct, Load/Save methods)"
+      - "pkg/config implemented (Config struct, Load/Save methods)"
+      - "Schema validation against JSON schema"
+      - "Atomic writes (write temp, rename)"
+      - "File locking (flock on Unix)"
+      - "Unit tests: state corruption scenarios"
+
+  - id: "US011-4"
+    priority: "P1"
+    title: "CLI in Go with Cobra"
+    description: |
+      As a developer,
+      I want CLI commands defined in Go (using Cobra),
+      So that we have consistent arg parsing, help text, and command structure.
+
+    acceptance_criteria:
+      - "GIVEN any command, WHEN --help invoked, THEN help text shown (Cobra-generated)"
+      - "GIVEN invalid args, WHEN command runs, THEN Cobra validation error shown"
+      - "GIVEN subcommands (list, add, rm, resume, pause, purge), WHEN implemented, THEN match v0.2.x exactly"
+      - "GIVEN flags, WHEN parsed, THEN long/short forms work (e.g., -o, --output)"
+
+    independent_test: |
+      1. Run: safedownload --help
+      2. Verify: Help text lists all commands (add, list, rm, resume, pause, purge, version)
+      3. Run: safedownload add
+      4. Verify: Error like "Error: required argument URL missing"
+      5. Run: safedownload add --checksum invalid https://example.com/file.zip
+      6. Verify: Cobra validation error for --checksum format
+
+    definition_of_done:
+      - "cmd/safedownload/main.go (Cobra root command)"
+      - "cmd/safedownload/commands/ (add.go, list.go, rm.go, etc.)"
+      - "CLI compatibility with v0.2.x (same flags, same output)"
+      - "Help text reviewed and approved"
+      - "E2E tests: all commands via Cobra"
+
+functional_requirements:
+  - id: "FR011-1"
+    description: "System MUST provide Go binary (safedownload-core) callable by shell wrapper"
+    priority: "MUST"
+    test: "Shell wrapper invokes Go binary successfully"
+
+  - id: "FR011-2"
+    description: "System MUST load v0.2.x state files without data loss"
+    priority: "MUST"
+    test: "Load v0.2.x state, verify all downloads present"
+
+  - id: "FR011-3"
+    description: "System MUST implement resumable downloads with Range headers"
+    priority: "MUST"
+    test: "Interrupt download, resume, verify continuation"
+
+  - id: "FR011-4"
+    description: "System MUST verify checksums (SHA256, SHA512, MD5)"
+    priority: "MUST"
+    test: "Download with checksum, verify success/failure"
+
+  - id: "FR011-5"
+    description: "System MUST enforce rate limiting (±5% accuracy)"
+    priority: "MUST"
+    test: "Benchmark download speed with --rate-limit 1MB/s"
+
+  - id: "FR011-6"
+    description: "System MUST save state atomically (temp file → rename)"
+    priority: "MUST"
+    test: "Kill app mid-save, verify state not corrupted"
+
+  - id: "FR011-7"
+    description: "System MUST prevent concurrent state corruption via file locking"
+    priority: "MUST"
+    test: "Run two instances simultaneously, verify no corruption"
+
+  - id: "FR011-8"
+    description: "System MUST maintain CLI compatibility with v0.2.x"
+    priority: "MUST"
+    test: "Run v0.2.x E2E tests against v1.0.0"
+
+  - id: "FR011-9"
+    description: "System SHOULD achieve ≥80% test coverage (Go code)"
+    priority: "SHOULD"
+    test: "go test -cover ./... (verify ≥80%)"
+
+non_functional_requirements:
+  performance:
+    - "Download throughput MUST be ≥ v0.2.x baseline (no regression)"
+    - "Checksum verification MUST be 10x faster than shasum (parallel chunks)"
+    - "Startup time MUST be <100ms (binary launch overhead)"
+    - "State load MUST be <50ms for typical queue (50 downloads)"
+
+  reliability:
+    - "Binary MUST handle SIGINT/SIGTERM gracefully (save state before exit)"
+    - "Atomic writes MUST prevent state corruption on crash"
+    - "File locking MUST prevent concurrent corruption"
+
+  maintainability:
+    - "Go code MUST follow stdlib conventions (gofmt, golint pass)"
+    - "Packages MUST be decoupled (single responsibility)"
+    - "Public APIs MUST have godoc comments"
+
+  security:
+    - "HTTP client MUST validate TLS certificates (no skip verify)"
+    - "File permissions MUST be 0600 for state.json (user-only read/write)"
+    - "Credentials MUST NOT be logged (sanitized per F007)"
+
+  platform_support:
+    - "Tier 1: macOS (amd64, arm64), Ubuntu LTS (amd64), Debian 12+ (amd64)"
+    - "Tier 2: Fedora, Arch, FreeBSD (community-supported)"
+    - "Tier 3: Windows (WSL2 only, no native support in v1.0.0)"
+
+implementation:
+  packages:
+    - name: "cmd/safedownload"
+      purpose: "CLI entry point with Cobra commands"
+      new_files:
+        - "cmd/safedownload/main.go (root command)"
+        - "cmd/safedownload/commands/add.go"
+        - "cmd/safedownload/commands/list.go"
+        - "cmd/safedownload/commands/rm.go"
+        - "cmd/safedownload/commands/resume.go"
+        - "cmd/safedownload/commands/pause.go"
+        - "cmd/safedownload/commands/purge.go"
+        - "cmd/safedownload/commands/version.go"
+
+    - name: "pkg/downloader"
+      purpose: "HTTP download engine (resumable, checksummed)"
+      new_files:
+        - "pkg/downloader/downloader.go (Downloader interface)"
+        - "pkg/downloader/http.go (HTTP implementation)"
+        - "pkg/downloader/resume.go (Range header logic)"
+        - "pkg/downloader/downloader_test.go"
+
+    - name: "pkg/checksum"
+      purpose: "Checksum verification (parallel chunks)"
+      new_files:
+        - "pkg/checksum/checksum.go (Verify function)"
+        - "pkg/checksum/parallel.go (parallel chunk hashing)"
+        - "pkg/checksum/checksum_test.go"
+
+    - name: "pkg/ratelimit"
+      purpose: "Rate limiting (token bucket)"
+      new_files:
+        - "pkg/ratelimit/limiter.go (RateLimiter interface)"
+        - "pkg/ratelimit/tokenbucket.go (token bucket implementation)"
+        - "pkg/ratelimit/limiter_test.go"
+
+    - name: "pkg/state"
+      purpose: "State persistence (queue, schema validation)"
+      new_files:
+        - "pkg/state/state.go (State struct, Load/Save)"
+        - "pkg/state/download.go (Download model)"
+        - "pkg/state/lock.go (file locking)"
+        - "pkg/state/atomic.go (atomic writes)"
+        - "pkg/state/state_test.go"
+
+    - name: "pkg/config"
+      purpose: "Configuration management"
+      new_files:
+        - "pkg/config/config.go (Config struct, Load/Save)"
+        - "pkg/config/defaults.go (default values)"
+        - "pkg/config/config_test.go"
+
+    - name: "pkg/logger"
+      purpose: "Logging (rotation, sanitization)"
+      new_files:
+        - "pkg/logger/logger.go (Logger interface)"
+        - "pkg/logger/file.go (file logger with rotation)"
+        - "pkg/logger/sanitize.go (credential sanitization per F007)"
+        - "pkg/logger/logger_test.go"
+
+  bash_changes:
+    - file: "safedownload (shell wrapper)"
+      changes:
+        - "Detect Go binary: SAFEDOWNLOAD_CORE=${SAFEDOWNLOAD_CORE:-$(which safedownload-core)}"
+        - 'If binary found: exec safedownload-core "$@"'
+        - "If binary missing: error 'Go binary not found. Install from releases.'"
+        - "Preserve PATH, environment variables (transparent exec)"
+
+  cli:
+    new_flags:
+      - flag: "--version"
+        type: "boolean"
+        default: "false"
+        description: "Show version (now includes Go binary version)"
+
+    new_commands: []
+
+    changed_commands:
+      - command: "add"
+        changes: "Now implemented in Go (cmd/safedownload/commands/add.go)"
+      - command: "list"
+        changes: "Now implemented in Go (cmd/safedownload/commands/list.go)"
+      - command: "rm"
+        changes: "Now implemented in Go (cmd/safedownload/commands/rm.go)"
+      - command: "resume"
+        changes: "Now implemented in Go (cmd/safedownload/commands/resume.go)"
+      - command: "pause"
+        changes: "Now implemented in Go (cmd/safedownload/commands/pause.go)"
+      - command: "purge"
+        changes: "Now implemented in Go (cmd/safedownload/commands/purge.go)"
+
+  schema_changes:
+    state_json:
+      version: "1.0.0"
+      changes:
+        - type: "no change"
+          notes: "Schema unchanged from v0.2.0; migration handled by F010"
+
+    config_json:
+      version: "1.0.0"
+      changes:
+        - type: "no change"
+          notes: "Schema unchanged from v0.2.0"
+
+  build:
+    - "Makefile: go build -o safedownload-core cmd/safedownload/main.go"
+    - "Cross-compilation: GOOS=darwin GOARCH=amd64/arm64"
+    - "Release artifacts: safedownload-core-darwin-amd64, safedownload-core-linux-amd64"
+
+testing:
+  unit_tests:
+    - file: "pkg/downloader/downloader_test.go"
+      functions:
+        - "TestDownloader_ResumeHTTP"
+        - "TestDownloader_ChecksumVerification"
+        - "TestDownloader_RateLimit"
+        - "TestDownloader_ErrorHandling"
+      coverage_target: "85%"
+
+    - file: "pkg/state/state_test.go"
+      functions:
+        - "TestState_LoadV0xMigration"
+        - "TestState_AtomicWrite"
+        - "TestState_FileLocking"
+        - "TestState_Corruption"
+      coverage_target: "90%"
+
+    - file: "pkg/checksum/checksum_test.go"
+      functions:
+        - "TestChecksum_SHA256"
+        - "TestChecksum_ParallelPerformance"
+        - "TestChecksum_InvalidHash"
+      coverage_target: "100%"
+
+  integration_tests:
+    - file: "tests/integration/download_lifecycle_test.go"
+      scenarios:
+        - "Full download lifecycle (add → download → verify → complete)"
+        - "Resume after interruption (mid-download)"
+        - "Checksum failure (rollback)"
+      coverage_target: "Download engine end-to-end"
+
+    - file: "tests/integration/state_migration_test.go"
+      scenarios:
+        - "Load v0.2.x state in v1.0.0 Go core"
+        - "Concurrent state access (two instances)"
+        - "State corruption recovery"
+      coverage_target: "State management edge cases"
+
+  e2e_tests:
+    - file: "tests/e2e/cli_compatibility_test.bats"
+      scenarios:
+        - "CLI: All v0.2.x commands work in v1.0.0"
+        - "CLI: State preserved across v0.2.x → v1.0.0 upgrade"
+        - "CLI: Help text and error messages unchanged"
+      notes: "Reuse entire v0.2.x E2E suite to verify compatibility"
+
+  benchmark_tests:
+    - file: "tests/benchmark/throughput_test.go"
+      scenarios:
+        - "Download throughput: 100MB file (compare v0.2.x vs v1.0.0)"
+        - "Checksum performance: 1GB file (Go vs shasum)"
+        - "State load time: 1000 downloads"
+
+  manual_tests:
+    - "Test on macOS (Intel + Apple Silicon)"
+    - "Test on Ubuntu 22.04 LTS"
+    - "Test on Debian 12"
+    - "Upgrade from v0.2.x with real user data"
+
+dependencies:
+  external:
+    - name: "github.com/spf13/cobra"
+      version: "v1.8.0"
+      license: "Apache-2.0"
+      justification: "Industry-standard CLI framework"
+      optional: false
+
+    - name: "golang.org/x/sync/errgroup"
+      version: "v0.6.0"
+      license: "BSD-3-Clause"
+      justification: "Goroutine coordination for parallel downloads"
+      optional: false
+
+    - name: "golang.org/x/time/rate"
+      version: "v0.5.0"
+      license: "BSD-3-Clause"
+      justification: "Rate limiting implementation"
+      optional: false
+
+  internal:
+    - feature: "F010"
+      name: "Schema Versioning"
+      reason: "State migration from v0.2.x requires schema_version field"
+
+  platform:
+    - "Go 1.21+ (stdlib: net/http, encoding/json, os, io)"
+
+documentation:
+  readme_sections:
+    - section: "Installation"
+      changes: |
+        Update installation instructions:
+        - Go binary bundled with v1.0.0+ releases
+        - Shell wrapper automatically uses Go binary
+        - Installation unchanged from user perspective (brew, curl | bash)
+
+    - section: "Architecture"
+      changes: |
+        Add "Architecture" section explaining:
+        - v1.0.0+ uses compiled Go core
+        - Shell wrapper for backward compatibility
+        - Performance benefits (faster checksum, native concurrency)
+
+  new_docs:
+    - file: "docs/ARCHITECTURE.md"
+      purpose: "Detailed architecture of Go core (packages, data flow)"
+
+    - file: "docs/DEVELOPMENT.md"
+      purpose: "Developer guide for Go codebase (setup, testing, contributing)"
+
+  changelog:
+    type: "Changed"
+    entry: |
+      ### 🚀 v1.0.0 "Phoenix" - Go Core Migration (Principle VIII)
+      - **MAJOR**: Core rewritten in Go (from Bash/Python)
+        - Compiled binary: safedownload-core (transparent to users)
+        - 10x faster checksum verification (parallel chunks)
+        - Native concurrency (parallel downloads)
+        - Type-safe state management
+      - **CLI**: 100% backward compatible (shell wrapper preserved)
+      - **State**: v0.2.x state files auto-migrate to v1.0.0
+      - **Performance**: No regression in download throughput
+      - **Platform**: Tier 1 support for macOS (amd64, arm64), Ubuntu, Debian
+
+edge_cases:
+  - case: "Go binary not found (shell wrapper can't find safedownload-core)"
+    expected_behavior: "Error: 'Go binary not found. Download from https://github.com/user/safedownload/releases'"
+    test: "TestShellWrapper_MissingBinary"
+
+  - case: "Go binary version mismatch (wrapper v1.0.0, binary v0.9.9)"
+    expected_behavior: "Warning: 'Version mismatch: wrapper v1.0.0, binary v0.9.9. Upgrade recommended.'"
+    test: "TestShellWrapper_VersionMismatch"
+
+  - case: "v0.2.x state file with corrupt JSON"
+    expected_behavior: "Migration fails with clear error (see F010 migration error handling)"
+    test: "TestMigration_CorruptState"
+
+  - case: "Concurrent downloads (5 downloads running simultaneously)"
+    expected_behavior: "All downloads succeed, no race conditions (go test -race passes)"
+    test: "TestDownloader_ConcurrentDownloads"
+
+  - case: "Large state file (10,000 downloads)"
+    expected_behavior: "Load time <500ms, no memory issues"
+    test: "TestState_LargeQueue"
+
+error_handling:
+  - error: "Go binary not found"
+    exit_code: 1
+    retry: false
+    user_action: "Install Go binary from releases page"
+
+  - error: "State file corrupt (JSON parse error)"
+    exit_code: 1
+    retry: false
+    user_action: "Restore from backup (state.json.v0.bak) or delete state.json to start fresh"
+
+  - error: "Network error during download"
+    exit_code: 2
+    retry: true
+    user_action: "Automatic retry with exponential backoff (per F009)"
+
+  - error: "Checksum verification failure"
+    exit_code: 3
+    retry: false
+    user_action: "Download re-attempted from scratch (partial file deleted)"
+
+risks:
+  - id: "RISK011-1"
+    title: "Go migration breaks v0.2.x compatibility"
+    impact: "critical"
+    probability: "medium"
+    mitigation: |
+      - Run entire v0.2.x E2E test suite against v1.0.0
+      - Manual testing with real user state files
+      - Beta release period (v1.0.0-beta.1) for community testing
+      - Rollback plan: keep v0.2.x as LTS branch if critical issues
+
+  - id: "RISK011-2"
+    title: "Performance regression in download throughput"
+    impact: "high"
+    probability: "low"
+    mitigation: |
+      - Benchmark tests comparing v0.2.x vs v1.0.0
+      - Profiling (go tool pprof) to identify bottlenecks
+      - Optimize hot paths (HTTP client, I/O buffers)
+
+  - id: "RISK011-3"
+    title: "Binary distribution size (Go binary larger than Bash script)"
+    impact: "low"
+    probability: "high"
+    mitigation: |
+      - Acceptable trade-off (performance > size)
+      - UPX compression if size critical
+      - Document binary size in release notes
+
+  - id: "RISK011-4"
+    title: "Platform-specific bugs (macOS vs Linux)"
+    impact: "medium"
+    probability: "medium"
+    mitigation: |
+      - CI testing on all Tier 1 platforms
+      - Platform-specific integration tests
+      - Community beta testing on diverse systems
+
+alternatives:
+  - approach: "Keep Bash/Python, optimize incrementally"
+    pros:
+      - "No migration risk"
+      - "Smaller distribution size"
+    cons:
+      - "Limited performance ceiling"
+      - "Harder to maintain complex features (Bubble Tea TUI)"
+      - "Can't leverage Go ecosystem"
+    reason_rejected: "Constitution Principle VIII requires Go migration for long-term maintainability"
+
+  - approach: "Rewrite everything in Go (remove shell wrapper)"
+    pros:
+      - "Cleaner architecture (single binary)"
+      - "No wrapper complexity"
+    cons:
+      - "Breaks user workflows (binary name changes)"
+      - "Violates zero-configuration principle"
+    reason_rejected: "Shell wrapper preserves backward compatibility and zero-config UX"
+
+  - approach: "Hybrid approach (keep Bash for CLI, Go for heavy lifting)"
+    pros:
+      - "Gradual migration"
+      - "Less risky"
+    cons:
+      - "Bash/Go boundary complexity"
+      - "Still have two codebases to maintain"
+    reason_rejected: "Full Go migration cleaner in long term; shell wrapper sufficient for compatibility"
+
+success_criteria:
+  quantitative:
+    - "100% of v0.2.x E2E tests pass against v1.0.0"
+    - "Download throughput ≥ v0.2.x (no regression)"
+    - "Checksum verification 10x faster than v0.2.x"
+    - "80%+ code coverage (Go code)"
+    - "Startup time <100ms"
+
+  qualitative:
+    - "Users upgrade without noticing (transparent migration)"
+    - "Codebase easier to maintain (Go vs Bash/Python)"
+    - "Foundation ready for Bubble Tea TUI (v1.1.0)"
+    - "Community contributors find Go easier than Bash"
+
+sprint_tasks:
+  planning:
+    - task: "T011-001"
+      description: "Design Go package architecture (review dev/architecture/core-migration.md)"
+      assignee: "@peternicholls"
+      estimate: "1 SP"
+
+    - task: "T011-002"
+      description: "Set up Go project (go.mod, directory structure)"
+      assignee: "@peternicholls"
+      estimate: "0.5 SP"
+
+  core_packages:
+    - task: "T011-003"
+      description: "Implement pkg/downloader (HTTP resumable downloads)"
+      assignee: "@peternicholls"
+      estimate: "3 SP"
+
+    - task: "T011-004"
+      description: "Implement pkg/checksum (parallel verification)"
+      assignee: "@peternicholls"
+      estimate: "2 SP"
+
+    - task: "T011-005"
+      description: "Implement pkg/ratelimit (token bucket)"
+      assignee: "@peternicholls"
+      estimate: "1 SP"
+
+    - task: "T011-006"
+      description: "Implement pkg/state (Load/Save, atomic writes, locking)"
+      assignee: "@peternicholls"
+      estimate: "3 SP"
+
+    - task: "T011-007"
+      description: "Implement pkg/config (Load/Save, defaults)"
+      assignee: "@peternicholls"
+      estimate: "1 SP"
+
+    - task: "T011-008"
+      description: "Implement pkg/logger (rotation, sanitization per F007)"
+      assignee: "@peternicholls"
+      estimate: "2 SP"
+
+  cli:
+    - task: "T011-009"
+      description: "Implement cmd/safedownload with Cobra (root command)"
+      assignee: "@peternicholls"
+      estimate: "1 SP"
+
+    - task: "T011-010"
+      description: "Implement commands (add, list, rm, resume, pause, purge)"
+      assignee: "@peternicholls"
+      estimate: "3 SP"
+
+  integration:
+    - task: "T011-011"
+      description: "Update shell wrapper to call Go binary"
+      assignee: "@peternicholls"
+      estimate: "1 SP"
+
+    - task: "T011-012"
+      description: "Set up Makefile for cross-compilation"
+      assignee: "@peternicholls"
+      estimate: "1 SP"
+
+  testing:
+    - task: "T011-013"
+      description: "Write unit tests (80%+ coverage)"
+      assignee: "@peternicholls"
+      estimate: "3 SP"
+
+    - task: "T011-014"
+      description: "Write integration tests (download lifecycle, state migration)"
+      assignee: "@peternicholls"
+      estimate: "2 SP"
+
+    - task: "T011-015"
+      description: "Run v0.2.x E2E tests against v1.0.0 (compatibility verification)"
+      assignee: "@peternicholls"
+      estimate: "1 SP"
+
+    - task: "T011-016"
+      description: "Write benchmark tests (throughput, checksum performance)"
+      assignee: "@peternicholls"
+      estimate: "1 SP"
+
+  documentation:
+    - task: "T011-017"
+      description: "Create docs/ARCHITECTURE.md"
+      assignee: "@peternicholls"
+      estimate: "1 SP"
+
+    - task: "T011-018"
+      description: "Create docs/DEVELOPMENT.md"
+      assignee: "@peternicholls"
+      estimate: "1 SP"
+
+    - task: "T011-019"
+      description: "Update README with v1.0.0 migration notes"
+      assignee: "@peternicholls"
+      estimate: "0.5 SP"
+
+notes: |
+  Constitution Compliance: This feature implements Principle VIII (Polyglot
+  Architecture), migrating from Bash/Python to Go for performance, maintainability,
+  and advanced feature support while preserving zero-configuration UX.
+
+  Related documents:
+  - dev/architecture/core-migration.md (comprehensive migration plan)
+  - Constitution Principle VIII (rationale for Go migration)
+  - F010 Schema Versioning (state migration dependency)
+
+  Implementation Strategy:
+  - Sprint 3: Core packages (downloader, checksum, state, config, logger)
+  - Sprint 4: CLI (Cobra commands, shell wrapper integration)
+  - Sprint 5: Testing, documentation, release preparation
+
+  Migration Phases:
+  1. **Package Development** (Sprint 3):
+     - pkg/downloader, pkg/checksum, pkg/ratelimit (download engine)
+     - pkg/state, pkg/config (data layer)
+     - pkg/logger (observability)
+     - Unit tests for each package (80%+ coverage)
+
+  2. **CLI Development** (Sprint 4):
+     - cmd/safedownload with Cobra
+     - All commands (add, list, rm, resume, pause, purge)
+     - Shell wrapper update
+     - Integration tests
+
+  3. **Validation & Release** (Sprint 5):
+     - v0.2.x E2E test suite against v1.0.0
+     - Benchmark tests (performance validation)
+     - Beta release (v1.0.0-beta.1) for community testing
+     - Documentation (ARCHITECTURE.md, DEVELOPMENT.md)
+     - Final release v1.0.0
+
+  Performance Targets:
+  - Download throughput: ≥ v0.2.x (no regression)
+  - Checksum: 10x faster (parallel chunks vs sequential shasum)
+  - Startup: <100ms (binary launch)
+  - State load: <50ms (typical queue)
+
+  Backward Compatibility Strategy:
+  - Shell wrapper preserved (transparent binary call)
+  - CLI 100% compatible (same flags, same output)
+  - State files auto-migrate (F010 dependency)
+  - User workflows unchanged (zero learning curve)
+
+  Post-Release:
+  - v1.0.1-v1.0.x: Bug fixes, performance tuning
+  - v1.1.0: Bubble Tea TUI (F014, requires Go core)
+  - v2.0.0: REST API, multi-user (F025-F027, requires Go core)
+
+  See also:
+  - dev/architecture/core-migration.md for package details
+  - F012 CLI Contract Preservation for compatibility testing
+  - F013 Cross-Platform Build for release engineering

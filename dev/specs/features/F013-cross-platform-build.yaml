@@ -1,0 +1,539 @@
+metadata:
+  id: "F013"
+  name: "Cross-Platform Build"
+  version: "1.0.0"
+  sprint: 5
+  status: "planned"
+  priority: "P1"
+  story_points: 5
+  created: "2025-12-25"
+  updated: "2025-12-25"
+
+description: |
+  Establish cross-platform build pipeline for Go binary across macOS (amd64, arm64),
+  Linux (amd64), and FreeBSD (amd64), with automated GitHub Actions CI/CD for
+  releases, ensuring Tier 1 platform support per Constitution requirements.
+
+  This feature completes the v1.0.0 "Phoenix" release by making the Go core library
+  (F011) available to users across supported platforms with automated, reproducible builds.
+
+constitution_compliance:
+  principles:
+    - id: "VIII"
+      name: "Polyglot Architecture & Forward Compatibility"
+      notes: |
+        Cross-platform builds enable Go binary distribution across Tier 1 platforms,
+        completing the architecture migration.
+
+    - id: "II"
+      name: "Zero-Configuration"
+      notes: |
+        Binary distribution (via Homebrew, direct download) maintains zero-config
+        installation experience.
+
+  gates:
+    - gate: "Platform Support"
+      requirement: "Tier 1 platforms (macOS amd64/arm64, Ubuntu amd64, Debian amd64) build successfully"
+      test: "GitHub Actions CI builds for all platforms pass"
+
+    - gate: "Binary Compatibility"
+      requirement: "Built binaries run on target platforms"
+      test: "E2E tests on macOS (Intel + M1), Ubuntu 22.04, Debian 12"
+
+    - gate: "Release Artifacts"
+      requirement: "GitHub Releases include all platform binaries"
+      test: "Manual verification of release artifacts"
+
+user_stories:
+  - id: "US013-1"
+    priority: "P1"
+    title: "Automated cross-platform builds"
+    description: |
+      As a developer,
+      I want GitHub Actions to build binaries for all platforms,
+      So that releases are automated and reproducible.
+
+    acceptance_criteria:
+      - "GIVEN GitHub push to main, WHEN CI runs, THEN binaries built for macOS (amd64, arm64), Linux (amd64)"
+      - "GIVEN release tag (vX.Y.Z), WHEN created, THEN GitHub Actions publishes release with all binaries"
+      - "GIVEN build failure, WHEN detected, THEN CI fails and notifies"
+      - "GIVEN binaries, WHEN compared, THEN checksums reproducible (deterministic builds)"
+
+    independent_test: |
+      1. Create release tag: git tag v1.0.0-beta.1
+      2. Push: git push origin v1.0.0-beta.1
+      3. Wait for GitHub Actions workflow
+      4. Verify: Release created at https://github.com/user/safedownload/releases/tag/v1.0.0-beta.1
+      5. Verify: Artifacts present:
+         - safedownload-darwin-amd64
+         - safedownload-darwin-arm64
+         - safedownload-linux-amd64
+         - checksums.txt (SHA256 of all binaries)
+      6. Download safedownload-darwin-amd64
+      7. Run: shasum -a 256 safedownload-darwin-amd64
+      8. Verify: Checksum matches checksums.txt
+
+    definition_of_done:
+      - "GitHub Actions workflow (.github/workflows/release.yml) created"
+      - "Workflow triggers on tag push (v*)"
+      - "Workflow builds for macOS (amd64, arm64), Linux (amd64)"
+      - "Workflow uploads release artifacts (binaries + checksums)"
+      - "Release notes auto-generated from CHANGELOG.md"
+
+  - id: "US013-2"
+    priority: "P1"
+    title: "Makefile for local builds"
+    description: |
+      As a developer,
+      I want a Makefile for local cross-compilation,
+      So that I can test builds before pushing to CI.
+
+    acceptance_criteria:
+      - "GIVEN 'make build', WHEN run, THEN native binary built (e.g., darwin-arm64 on M1 Mac)"
+      - "GIVEN 'make build-all', WHEN run, THEN all platform binaries built"
+      - "GIVEN 'make clean', WHEN run, THEN build artifacts removed"
+      - "GIVEN 'make test', WHEN run, THEN unit tests executed"
+
+    independent_test: |
+      1. Run: make clean
+      2. Verify: build/ directory removed
+      3. Run: make build
+      4. Verify: Binary created for native platform (e.g., build/safedownload-darwin-arm64)
+      5. Run: ./build/safedownload-darwin-arm64 --version
+      6. Verify: Version output correct
+      7. Run: make build-all
+      8. Verify: Binaries for all platforms in build/ directory
+      9. Run: make test
+      10. Verify: All unit tests pass
+
+    definition_of_done:
+      - "Makefile created with targets: build, build-all, clean, test, install"
+      - "Cross-compilation uses GOOS/GOARCH env vars"
+      - "Binaries output to build/ directory with platform suffix"
+      - "make install copies binary to /usr/local/bin/"
+
+  - id: "US013-3"
+    priority: "P1"
+    title: "Platform-specific packaging"
+    description: |
+      As a user on macOS,
+      I want to install via Homebrew,
+      So that installation is simple and familiar.
+
+    acceptance_criteria:
+      - "GIVEN Homebrew tap (future F021), WHEN brew install safedownload, THEN Go binary included"
+      - "GIVEN direct download, WHEN user downloads binary, THEN installation instructions clear"
+      - "GIVEN Linux distros, WHEN .deb/.rpm packaging (future F022-F023), THEN Go binary packaged correctly"
+
+    independent_test: |
+      1. Download release binary: curl -L https://github.com/user/safedownload/releases/download/v1.0.0/safedownload-darwin-arm64 -o safedownload-core
+      2. Run: chmod +x safedownload-core
+      3. Run: ./safedownload-core --version
+      4. Verify: Version output correct
+      5. Install: sudo mv safedownload-core /usr/local/bin/
+      6. Run: safedownload --version (via shell wrapper)
+      7. Verify: Wrapper calls Go binary successfully
+
+    definition_of_done:
+      - "Release notes include installation instructions for each platform"
+      - "Binary naming convention: safedownload-{OS}-{ARCH}"
+      - "Checksums provided for verification"
+      - "Installation script (install.sh) supports Go binary download"
+
+functional_requirements:
+  - id: "FR013-1"
+    description: "System MUST build binaries for macOS (amd64, arm64)"
+    priority: "MUST"
+    test: "GitHub Actions builds darwin-amd64, darwin-arm64"
+
+  - id: "FR013-2"
+    description: "System MUST build binaries for Linux (amd64)"
+    priority: "MUST"
+    test: "GitHub Actions builds linux-amd64"
+
+  - id: "FR013-3"
+    description: "System MUST generate SHA256 checksums for all binaries"
+    priority: "MUST"
+    test: "checksums.txt file present in release"
+
+  - id: "FR013-4"
+    description: "System MUST publish binaries to GitHub Releases on tag push"
+    priority: "MUST"
+    test: "Tag push triggers release workflow"
+
+  - id: "FR013-5"
+    description: "System MUST run tests before building release"
+    priority: "MUST"
+    test: "CI runs 'go test ./...' before build"
+
+  - id: "FR013-6"
+    description: "System SHOULD build for FreeBSD (amd64) as Tier 2 support"
+    priority: "SHOULD"
+    test: "Makefile includes freebsd-amd64 target"
+
+  - id: "FR013-7"
+    description: "System SHOULD use reproducible builds (deterministic)"
+    priority: "SHOULD"
+    test: "Same git commit produces identical binaries"
+
+non_functional_requirements:
+  performance:
+    - "Build time MUST be <5 minutes for all platforms (parallel jobs)"
+    - "Binary size SHOULD be <10MB (Go binary, no dependencies)"
+
+  reliability:
+    - "CI builds MUST be reproducible (same commit → same binary)"
+    - "Release workflow MUST be idempotent (re-running safe)"
+
+  security:
+    - "Binaries MUST be built on GitHub-hosted runners (trusted environment)"
+    - "Checksums MUST be SHA256 (secure hash)"
+    - "Releases SHOULD be signed (future: GPG signatures per F017)"
+
+  maintainability:
+    - "Makefile MUST follow GNU Make conventions"
+    - "GitHub Actions MUST use standard actions (checkout, setup-go, upload-artifact)"
+    - "Build scripts MUST be documented"
+
+  platform_support:
+    - "Tier 1: macOS (amd64, arm64), Ubuntu LTS (amd64), Debian 12+ (amd64)"
+    - "Tier 2: FreeBSD (amd64, community-supported)"
+    - "Tier 3: Windows (WSL2 only, not native in v1.0.0)"
+
+implementation:
+  packages:
+    - name: "Build Infrastructure"
+      purpose: "Cross-platform build automation"
+      new_files:
+        - "Makefile (build, build-all, test, clean, install)"
+        - ".github/workflows/ci.yml (test on push)"
+        - ".github/workflows/release.yml (build and publish on tag)"
+        - ".goreleaser.yml (optional: GoReleaser for advanced builds)"
+
+  bash_changes:
+    - file: "install.sh"
+      changes:
+        - "Detect OS and architecture (uname -s, uname -m)"
+        - "Download appropriate binary (e.g., safedownload-darwin-arm64)"
+        - "Verify checksum (compare with checksums.txt)"
+        - "Install binary to /usr/local/bin/"
+        - "Install shell wrapper to /usr/local/bin/safedownload"
+
+  cli:
+    new_flags: []
+    new_commands: []
+
+  build_targets:
+    - platform: "macOS (Intel)"
+      target: "darwin-amd64"
+      GOOS: "darwin"
+      GOARCH: "amd64"
+
+    - platform: "macOS (Apple Silicon)"
+      target: "darwin-arm64"
+      GOOS: "darwin"
+      GOARCH: "arm64"
+
+    - platform: "Linux (amd64)"
+      target: "linux-amd64"
+      GOOS: "linux"
+      GOARCH: "amd64"
+
+    - platform: "FreeBSD (amd64)"
+      target: "freebsd-amd64"
+      GOOS: "freebsd"
+      GOARCH: "amd64"
+      tier: "Tier 2"
+
+testing:
+  unit_tests:
+    - file: "N/A (build infrastructure, not application code)"
+      notes: "Build scripts tested via CI runs"
+
+  integration_tests:
+    - file: "tests/integration/build_test.sh"
+      scenarios:
+        - "Build all platforms with 'make build-all'"
+        - "Verify binaries executable on target platforms"
+        - "Verify checksums match"
+
+  e2e_tests:
+    - file: "tests/e2e/install_test.bats"
+      scenarios:
+        - "Install via install.sh (downloads and installs binary)"
+        - "Verify binary runs after install"
+        - "Verify shell wrapper calls binary"
+
+  manual_tests:
+    - "Test builds on macOS (Intel + Apple Silicon)"
+    - "Test builds on Linux (Ubuntu 22.04, Debian 12)"
+    - "Test GitHub Actions workflow (push tag, verify release)"
+
+dependencies:
+  external:
+    - name: "Go 1.21+"
+      version: "1.21"
+      license: "BSD-3-Clause"
+      justification: "Go toolchain for cross-compilation"
+      optional: false
+
+    - name: "GitHub Actions"
+      version: "N/A"
+      license: "N/A"
+      justification: "CI/CD for automated builds"
+      optional: false
+
+  internal:
+    - feature: "F011"
+      name: "Go Core Library"
+      reason: "Binaries built from Go codebase"
+
+  platform:
+    - "macOS: Xcode Command Line Tools (for testing)"
+    - "Linux: build-essential (for testing)"
+
+documentation:
+  readme_sections:
+    - section: "Installation"
+      changes: |
+        Update installation instructions:
+        - Homebrew: brew install safedownload (future F021)
+        - Direct download: curl install.sh | bash
+        - Manual: Download binary from GitHub Releases, chmod +x, move to /usr/local/bin/
+
+    - section: "Supported Platforms"
+      changes: |
+        Add "Supported Platforms" section:
+        - Tier 1: macOS (Intel, Apple Silicon), Ubuntu LTS, Debian 12+
+        - Tier 2: FreeBSD (community-supported)
+        - Tier 3: Windows (WSL2 only)
+
+  new_docs:
+    - file: "docs/BUILD.md"
+      purpose: "Build instructions for developers (Makefile, cross-compilation)"
+
+    - file: "docs/RELEASE.md"
+      purpose: "Release process documentation (tag, push, verify artifacts)"
+
+  changelog:
+    type: "Added"
+    entry: |
+      ### Cross-Platform Build (v1.0.0)
+      - **Builds**: Automated cross-platform builds (macOS amd64/arm64, Linux amd64)
+      - **Releases**: GitHub Actions publishes binaries on tag push
+      - **Installation**: Direct download, checksums for verification
+      - **Platforms**: Tier 1 (macOS, Ubuntu, Debian), Tier 2 (FreeBSD)
+
+edge_cases:
+  - case: "User downloads wrong binary (e.g., darwin-amd64 on darwin-arm64)"
+    expected_behavior: "Error: 'bad CPU type in executable' (OS-level, clear to users)"
+    test: "Documented in troubleshooting"
+
+  - case: "Checksum verification fails (corrupted download)"
+    expected_behavior: "install.sh errors: 'Checksum mismatch, download may be corrupted'"
+    test: "TestInstall_CorruptedDownload"
+
+  - case: "GitHub Actions fails to build (e.g., Go version mismatch)"
+    expected_behavior: "CI fails, no release published, maintainer notified"
+    test: "CI workflow includes failure notifications"
+
+  - case: "Release tag created but build incomplete"
+    expected_behavior: "Release marked as 'draft' until all binaries uploaded"
+    test: "GitHub Actions workflow uses 'draft: true' until complete"
+
+error_handling:
+  - error: "Build fails (Go compilation error)"
+    exit_code: 1
+    retry: false
+    user_action: "Developer fixes code, pushes new commit"
+
+  - error: "Checksum mismatch during install"
+    exit_code: 1
+    retry: false
+    user_action: "Re-download binary, verify network integrity"
+
+  - error: "Unsupported platform detected"
+    exit_code: 1
+    retry: false
+    user_action: "Use WSL2 on Windows, or build from source on Tier 3 platforms"
+
+risks:
+  - id: "RISK013-1"
+    title: "Platform-specific bugs not caught in CI"
+    impact: "medium"
+    probability: "low"
+    mitigation: |
+      - E2E tests on all Tier 1 platforms
+      - Beta releases for community testing
+      - Manual testing on diverse systems
+
+  - id: "RISK013-2"
+    title: "GitHub Actions workflow breaks (API changes)"
+    impact: "medium"
+    probability: "low"
+    mitigation: |
+      - Pin action versions (uses: actions/checkout@v3)
+      - Monitor GitHub Actions changelog
+      - Fallback: manual builds with Makefile
+
+  - id: "RISK013-3"
+    title: "Binary size too large (>10MB)"
+    impact: "low"
+    probability: "low"
+    mitigation: |
+      - Use 'go build -ldflags="-s -w"' to strip debug info
+      - UPX compression if needed (optional)
+      - Monitor binary size in CI
+
+alternatives:
+  - approach: "Use GoReleaser for advanced build automation"
+    pros:
+      - "Industry-standard tool"
+      - "Handles checksums, archives, signing automatically"
+      - "Homebrew tap integration built-in"
+    cons:
+      - "Another dependency"
+      - "Learning curve"
+    reason_selected: "Consider for future (F021-F024 packaging), but Makefile + GitHub Actions sufficient for v1.0.0"
+
+  - approach: "Build on macOS, Linux, Windows natively (no cross-compilation)"
+    pros:
+      - "Ensures platform-specific behavior tested"
+    cons:
+      - "Requires multiple CI runners (cost)"
+      - "Slower builds (sequential)"
+    reason_rejected: "Go cross-compilation reliable; native builds unnecessary for v1.0.0"
+
+  - approach: "Distribute source only (no pre-built binaries)"
+    pros:
+      - "Users build for their platform"
+      - "No distribution complexity"
+    cons:
+      - "Violates zero-configuration principle"
+      - "Requires Go toolchain on user machines"
+    reason_rejected: "Pre-built binaries essential for easy installation"
+
+success_criteria:
+  quantitative:
+    - "100% of Tier 1 platforms have binaries in release"
+    - "100% of release binaries verified with checksums"
+    - "CI build time <5 minutes"
+    - "Binary size <10MB"
+
+  qualitative:
+    - "Releases automated (tag push → published release)"
+    - "Installation simple (one-line command)"
+    - "Developers can build locally with 'make build-all'"
+
+sprint_tasks:
+  planning:
+    - task: "T013-001"
+      description: "Design build pipeline (Makefile + GitHub Actions)"
+      assignee: "@peternicholls"
+      estimate: "0.5 SP"
+
+  implementation:
+    - task: "T013-002"
+      description: "Create Makefile (build, build-all, test, clean, install)"
+      assignee: "@peternicholls"
+      estimate: "1 SP"
+
+    - task: "T013-003"
+      description: "Create .github/workflows/ci.yml (test on push)"
+      assignee: "@peternicholls"
+      estimate: "0.5 SP"
+
+    - task: "T013-004"
+      description: "Create .github/workflows/release.yml (build and publish on tag)"
+      assignee: "@peternicholls"
+      estimate: "1 SP"
+
+    - task: "T013-005"
+      description: "Update install.sh for binary download and verification"
+      assignee: "@peternicholls"
+      estimate: "1 SP"
+
+  testing:
+    - task: "T013-006"
+      description: "Test builds on all Tier 1 platforms"
+      assignee: "@peternicholls"
+      estimate: "1 SP"
+
+    - task: "T013-007"
+      description: "Test GitHub Actions workflow (tag push, verify release)"
+      assignee: "@peternicholls"
+      estimate: "0.5 SP"
+
+  documentation:
+    - task: "T013-008"
+      description: "Create docs/BUILD.md"
+      assignee: "@peternicholls"
+      estimate: "0.5 SP"
+
+    - task: "T013-009"
+      description: "Create docs/RELEASE.md"
+      assignee: "@peternicholls"
+      estimate: "0.5 SP"
+
+    - task: "T013-010"
+      description: "Update README with installation instructions"
+      assignee: "@peternicholls"
+      estimate: "0.5 SP"
+
+notes: |
+  Constitution Compliance: This feature completes Principle VIII (Polyglot
+  Architecture) by distributing Go binaries across Tier 1 platforms, while
+  maintaining Principle II (Zero-Configuration) via simple installation.
+
+  Related documents:
+  - F011 Go Core Library (code being built)
+  - F021-F024 Packaging (future Homebrew, .deb, .rpm, Docker)
+  - Constitution Platform Support (Tier 1/2/3 definitions)
+
+  Build Strategy:
+  - **Local Builds**: Makefile for developer use
+  - **CI Builds**: GitHub Actions for automated testing
+  - **Releases**: GitHub Actions for automated publishing
+
+  Makefile Targets:
+  - `make build`: Build for native platform
+  - `make build-all`: Build for all platforms
+  - `make test`: Run unit tests
+  - `make clean`: Remove build artifacts
+  - `make install`: Install binary to /usr/local/bin/
+
+  GitHub Actions Workflows:
+  - **ci.yml**: Runs on push (test, build, verify)
+  - **release.yml**: Runs on tag push (build all platforms, publish release)
+
+  Release Process:
+  1. Update VERSION.yaml, CHANGELOG.md
+  2. Commit changes
+  3. Create tag: git tag v1.0.0
+  4. Push tag: git push origin v1.0.0
+  5. GitHub Actions builds binaries, publishes release
+  6. Verify release artifacts on GitHub Releases page
+
+  Binary Naming Convention:
+  - safedownload-darwin-amd64 (macOS Intel)
+  - safedownload-darwin-arm64 (macOS Apple Silicon)
+  - safedownload-linux-amd64 (Linux)
+  - safedownload-freebsd-amd64 (FreeBSD)
+  - checksums.txt (SHA256 of all binaries)
+
+  Installation Methods:
+  - **Homebrew** (future F021): brew install safedownload
+  - **Direct download**: curl -L https://github.com/user/safedownload/releases/latest/download/install.sh | bash
+  - **Manual**: Download binary, chmod +x, move to /usr/local/bin/
+
+  Future Enhancements:
+  - F017: GPG signatures for releases (security)
+  - F021: Homebrew tap (macOS)
+  - F022: Debian packages (Ubuntu, Debian)
+  - F023: RPM packages (Fedora, RHEL)
+  - F024: Docker images (containerized deployments)
+
+  See also:
+  - docs/BUILD.md (developer build instructions)
+  - docs/RELEASE.md (release process)
+  - .github/workflows/ (CI/CD workflows)

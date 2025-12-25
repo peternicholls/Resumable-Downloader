@@ -1,0 +1,514 @@
+metadata:
+  id: "F012"
+  name: "CLI Contract Preservation"
+  version: "1.0.0"
+  sprint: 4
+  status: "planned"
+  priority: "P0"
+  story_points: 8
+  created: "2025-12-25"
+  updated: "2025-12-25"
+
+description: |
+  Ensure 100% backward compatibility of CLI interface during Go core migration,
+  preserving exact command syntax, flag behavior, output format, and error messages
+  to maintain zero learning curve for users upgrading from v0.2.x to v1.0.0.
+
+  This feature validates that F011 (Go Core Library) maintains identical user-facing
+  behavior despite internal architecture changes, upholding Constitution Principle II
+  (Zero-Configuration) and Principle VIII (Forward Compatibility).
+
+constitution_compliance:
+  principles:
+    - id: "II"
+      name: "Zero-Configuration"
+      notes: |
+        Users upgrading from v0.2.x should not need to learn new commands,
+        read migration guides, or change scripts. Transparent upgrade.
+
+    - id: "VIII"
+      name: "Polyglot Architecture & Forward Compatibility"
+      notes: |
+        CLI contract preserved across Bash → Go migration, enabling
+        future architecture changes without user impact.
+
+  gates:
+    - gate: "CLI Compatibility"
+      requirement: "100% of v0.2.x CLI tests pass against v1.0.0"
+      test: "tests/e2e/cli_contract_test.bats (run full v0.2.x suite)"
+
+    - gate: "Output Format"
+      requirement: "Output matches v0.2.x byte-for-byte (excluding timestamps)"
+      test: "tests/e2e/output_compatibility_test.bats"
+
+    - gate: "Error Messages"
+      requirement: "Error messages unchanged (helps user scripts/parsing)"
+      test: "tests/e2e/error_messages_test.bats"
+
+user_stories:
+  - id: "US012-1"
+    priority: "P0"
+    title: "Identical command syntax across versions"
+    description: |
+      As a user upgrading from v0.2.x,
+      I want all commands to work with identical syntax,
+      So that my muscle memory and scripts don't break.
+
+    acceptance_criteria:
+      - "GIVEN v0.2.x command 'safedownload add URL', WHEN run in v1.0.0, THEN identical behavior"
+      - "GIVEN v0.2.x flags (--checksum, --output, --rate-limit), WHEN used in v1.0.0, THEN parsed identically"
+      - "GIVEN v0.2.x command aliases (e.g., 'rm' vs 'remove'), WHEN used, THEN both work in v1.0.0"
+      - "GIVEN invalid command syntax, WHEN error thrown, THEN error message matches v0.2.x"
+
+    independent_test: |
+      1. Run v0.2.x command: safedownload add --checksum sha256:abc123 https://example.com/file.zip
+      2. Capture output and exit code
+      3. Run same command in v1.0.0
+      4. Verify: Output identical (byte-for-byte, excluding timestamps)
+      5. Verify: Exit code identical
+      6. Run invalid command: safedownload add --invalid-flag URL
+      7. Verify: Error message matches v0.2.x
+
+    definition_of_done:
+      - "All v0.2.x commands implemented in Cobra with exact flag names"
+      - "Flag aliases preserved (short/long forms)"
+      - "Positional argument parsing identical"
+      - "CLI contract test suite passes 100%"
+
+  - id: "US012-2"
+    priority: "P0"
+    title: "Output format compatibility"
+    description: |
+      As a user with scripts parsing SafeDownload output,
+      I want output format unchanged in v1.0.0,
+      So that my scripts don't break.
+
+    acceptance_criteria:
+      - "GIVEN 'safedownload list' output in v0.2.x, WHEN run in v1.0.0, THEN column layout identical"
+      - "GIVEN 'safedownload add' confirmation in v0.2.x, WHEN run in v1.0.0, THEN message format identical"
+      - "GIVEN JSON output (if any), WHEN compared, THEN schema identical"
+      - "GIVEN progress indicators, WHEN displayed, THEN format matches v0.2.x (or improved via F014 TUI)"
+
+    independent_test: |
+      1. In v0.2.x: safedownload add https://example.com/file1.zip
+      2. In v0.2.x: safedownload add https://example.com/file2.zip
+      3. In v0.2.x: safedownload list > v0.2.x-output.txt
+      4. Upgrade to v1.0.0
+      5. In v1.0.0: safedownload list > v1.0.0-output.txt
+      6. Run: diff v0.2.x-output.txt v1.0.0-output.txt
+      7. Verify: Only differences are timestamps (if displayed)
+
+    definition_of_done:
+      - "List command output format matches v0.2.x (columns, spacing)"
+      - "Confirmation messages match v0.2.x"
+      - "Error output format matches v0.2.x (stderr vs stdout)"
+      - "Output compatibility test suite passes"
+
+  - id: "US012-3"
+    priority: "P0"
+    title: "Exit code compatibility"
+    description: |
+      As a script using SafeDownload exit codes for error handling,
+      I want exit codes unchanged in v1.0.0,
+      So that my error handling logic works correctly.
+
+    acceptance_criteria:
+      - "GIVEN v0.2.x exit codes (0=success, 1=args, 2=network, 3=verify, 4=permission), WHEN used in v1.0.0, THEN identical"
+      - "GIVEN signal handling (SIGINT=130), WHEN interrupted, THEN exit code 130 in both versions"
+      - "GIVEN error scenarios, WHEN exit codes compared, THEN all scenarios match"
+
+    independent_test: |
+      1. In v0.2.x: safedownload add (missing URL)
+      2. Capture exit code: echo $?
+      3. Verify: Exit code 1 (invalid args)
+      4. In v1.0.0: safedownload add (missing URL)
+      5. Verify: Exit code 1 (identical to v0.2.x)
+      6. Test network error, checksum failure, permission error
+      7. Verify: Exit codes match v0.2.x for all scenarios
+
+    definition_of_done:
+      - "Exit codes documented in F009 Error Handling spec"
+      - "Exit code test suite passes (all error scenarios)"
+      - "Signal handling preserves exit code 130 (SIGINT)"
+
+  - id: "US012-4"
+    priority: "P1"
+    title: "Help text and documentation consistency"
+    description: |
+      As a user reading help text,
+      I want --help output to match v0.2.x (or improve clarity),
+      So that I can find the same information.
+
+    acceptance_criteria:
+      - "GIVEN 'safedownload --help', WHEN run in v1.0.0, THEN all commands listed (same as v0.2.x)"
+      - "GIVEN 'safedownload add --help', WHEN run, THEN flag descriptions match v0.2.x (or improved)"
+      - "GIVEN man page (if exists), WHEN compared, THEN content matches v0.2.x"
+
+    independent_test: |
+      1. In v0.2.x: safedownload --help > v0.2.x-help.txt
+      2. In v1.0.0: safedownload --help > v1.0.0-help.txt
+      3. Run: diff v0.2.x-help.txt v1.0.0-help.txt
+      4. Verify: All commands present, descriptions unchanged (or improved)
+      5. Check: Cobra-generated help maintains v0.2.x structure
+
+    definition_of_done:
+      - "Cobra help text reviewed and approved"
+      - "All commands listed in --help"
+      - "Flag descriptions match v0.2.x (or improved for clarity)"
+      - "Help text test passes"
+
+functional_requirements:
+  - id: "FR012-1"
+    description: "System MUST preserve all v0.2.x command names (add, list, rm, resume, pause, purge)"
+    priority: "MUST"
+    test: "Run all v0.2.x commands in v1.0.0"
+
+  - id: "FR012-2"
+    description: "System MUST preserve all v0.2.x flags (--checksum, --output, --rate-limit, etc.)"
+    priority: "MUST"
+    test: "Run commands with all v0.2.x flags"
+
+  - id: "FR012-3"
+    description: "System MUST preserve flag aliases (e.g., -o and --output)"
+    priority: "MUST"
+    test: "Test short/long flag forms"
+
+  - id: "FR012-4"
+    description: "System MUST preserve positional argument parsing"
+    priority: "MUST"
+    test: "Test commands with positional args (URL, ID, etc.)"
+
+  - id: "FR012-5"
+    description: "System MUST preserve output format (list, add, rm output)"
+    priority: "MUST"
+    test: "Compare output byte-for-byte with v0.2.x"
+
+  - id: "FR012-6"
+    description: "System MUST preserve exit codes (0, 1, 2, 3, 4, 130)"
+    priority: "MUST"
+    test: "Test all error scenarios, verify exit codes"
+
+  - id: "FR012-7"
+    description: "System MUST preserve error message format"
+    priority: "MUST"
+    test: "Compare error messages with v0.2.x"
+
+  - id: "FR012-8"
+    description: "System SHOULD improve help text clarity (while preserving structure)"
+    priority: "SHOULD"
+    test: "Manual review of --help output"
+
+non_functional_requirements:
+  usability:
+    - "CLI MUST be identical to v0.2.x (zero learning curve)"
+    - "Error messages MUST be clear and actionable (same as v0.2.x)"
+    - "Help text MUST list all commands and flags"
+
+  compatibility:
+    - "Scripts parsing v0.2.x output MUST work with v1.0.0"
+    - "Shell completions (if any) MUST work with v1.0.0"
+    - "Exit code-based error handling MUST work unchanged"
+
+  documentation:
+    - "CLI documentation MUST match actual behavior"
+    - "Changelog MUST note 'CLI unchanged from v0.2.x'"
+    - "Migration guide MUST state 'no changes needed'"
+
+  platform_support:
+    - "Tier 1: macOS, Ubuntu, Debian (CLI behavior identical)"
+
+implementation:
+  packages:
+    - name: "cmd/safedownload/commands"
+      purpose: "Cobra command definitions matching v0.2.x"
+      new_files:
+        - "cmd/safedownload/commands/contract_test.go (CLI contract tests)"
+      modified_files:
+        - "cmd/safedownload/commands/*.go (ensure v0.2.x compatibility)"
+
+  bash_changes:
+    - file: "safedownload (shell wrapper)"
+      changes:
+        - "No changes to wrapper interface"
+        - "Wrapper transparently calls Go binary"
+
+  cli:
+    validation:
+      - "All v0.2.x commands: add, list, rm, resume, pause, purge, version"
+      - "All v0.2.x flags: --checksum, --output, --rate-limit, --help, --version"
+      - "Flag aliases: -o (--output), -c (--checksum), -r (--rate-limit)"
+      - "Positional args: URL (add), ID (rm, resume, pause)"
+
+  testing_strategy:
+    - "Golden file testing: capture v0.2.x output, compare with v1.0.0"
+    - "Exit code testing: verify all error scenarios match"
+    - "Flag parsing: test all combinations of flags"
+    - "Error message diffing: ensure messages unchanged"
+
+testing:
+  unit_tests:
+    - file: "cmd/safedownload/commands/contract_test.go"
+      functions:
+        - "TestCLI_CommandNames_Match_V0_2_x"
+        - "TestCLI_FlagNames_Match_V0_2_x"
+        - "TestCLI_ExitCodes_Match_V0_2_x"
+      coverage_target: "100% of CLI surface area"
+
+  integration_tests:
+    - file: "tests/integration/cli_compatibility_test.go"
+      scenarios:
+        - "Run all v0.2.x commands in v1.0.0"
+        - "Test all flag combinations"
+        - "Verify output format matches"
+      coverage_target: "All command/flag combinations"
+
+  e2e_tests:
+    - file: "tests/e2e/cli_contract_test.bats"
+      scenarios:
+        - "CLI: safedownload add URL (v0.2.x → v1.0.0)"
+        - "CLI: safedownload list (output comparison)"
+        - "CLI: safedownload rm ID (confirmation message)"
+        - "CLI: Error scenarios (exit codes, error messages)"
+      notes: "Reuse entire v0.2.x E2E test suite"
+
+    - file: "tests/e2e/output_compatibility_test.bats"
+      scenarios:
+        - "Golden file testing: capture v0.2.x output, diff with v1.0.0"
+        - "JSON output (if any): schema validation"
+        - "Progress indicators: format validation"
+
+    - file: "tests/e2e/error_messages_test.bats"
+      scenarios:
+        - "Invalid args: compare error messages"
+        - "Network errors: compare error messages"
+        - "Checksum failures: compare error messages"
+        - "Permission errors: compare error messages"
+
+  manual_tests:
+    - "Side-by-side testing: v0.2.x and v1.0.0 on same machine"
+    - "Script compatibility: run real user scripts against v1.0.0"
+    - "Help text review: manual inspection of --help"
+
+dependencies:
+  external:
+    - name: "github.com/spf13/cobra"
+      version: "v1.8.0"
+      license: "Apache-2.0"
+      justification: "CLI framework (must preserve v0.2.x contract)"
+      optional: false
+
+  internal:
+    - feature: "F011"
+      name: "Go Core Library"
+      reason: "CLI contract testing validates Go implementation"
+
+  platform:
+    - "Bash testing framework: bats-core (E2E tests)"
+
+documentation:
+  readme_sections:
+    - section: "Migration"
+      changes: |
+        Add note: "CLI unchanged in v1.0.0. All v0.2.x commands work identically."
+
+  new_docs:
+    - file: "tests/e2e/CLI_CONTRACT.md"
+      purpose: "Documents CLI contract (commands, flags, output format) for future reference"
+
+  changelog:
+    type: "Changed"
+    entry: |
+      ### CLI Contract Preservation (v0.2.x → v1.0.0)
+      - **Compatibility**: 100% backward compatible CLI (zero changes needed)
+      - **Commands**: All v0.2.x commands unchanged (add, list, rm, resume, pause, purge)
+      - **Flags**: All v0.2.x flags unchanged (--checksum, --output, --rate-limit)
+      - **Output**: Output format preserved (scripts won't break)
+      - **Exit Codes**: Exit codes unchanged (0, 1, 2, 3, 4, 130)
+      - **Testing**: Full v0.2.x E2E suite passes against v1.0.0
+
+edge_cases:
+  - case: "User has shell alias overriding safedownload command"
+    expected_behavior: "Alias takes precedence (OS behavior, not SafeDownload issue)"
+    test: "Documented in troubleshooting"
+
+  - case: "Script uses undocumented v0.2.x output parsing (e.g., column positions)"
+    expected_behavior: "Output format preserved, but fragile scripts may break if spacing differs"
+    test: "Golden file testing ensures exact spacing"
+
+  - case: "v0.2.x had a bug (e.g., wrong exit code), v1.0.0 fixes it"
+    expected_behavior: "Bug fix documented in changelog as intentional breaking change (rare)"
+    test: "Manual review of all exit code changes"
+
+  - case: "Help text differs (Cobra generates different format than Bash)"
+    expected_behavior: "Help text structure preserved, but formatting may improve (acceptable)"
+    test: "Manual review and approval of help text changes"
+
+error_handling:
+  - error: "CLI contract test fails (command syntax differs)"
+    exit_code: "N/A (CI failure)"
+    retry: false
+    user_action: "Developer fixes Cobra commands to match v0.2.x"
+
+  - error: "Output format test fails (byte-for-byte comparison)"
+    exit_code: "N/A (CI failure)"
+    retry: false
+    user_action: "Developer adjusts output formatting to match v0.2.x"
+
+  - error: "Exit code test fails (wrong exit code)"
+    exit_code: "N/A (CI failure)"
+    retry: false
+    user_action: "Developer fixes error handling to match F009 exit codes"
+
+risks:
+  - id: "RISK012-1"
+    title: "Cobra framework generates incompatible CLI"
+    impact: "high"
+    probability: "medium"
+    mitigation: |
+      - Extensive CLI contract tests before release
+      - Manual testing with real user scripts
+      - Beta release for community validation
+      - Fallback: custom CLI parsing if Cobra incompatible
+
+  - id: "RISK012-2"
+    title: "Output format differs due to Go implementation"
+    impact: "medium"
+    probability: "low"
+    mitigation: |
+      - Golden file testing (byte-for-byte comparison)
+      - Manual review of all output changes
+      - Preserve spacing, column alignment from v0.2.x
+
+  - id: "RISK012-3"
+    title: "Help text changes break user expectations"
+    impact: "low"
+    probability: "medium"
+    mitigation: |
+      - Manual review of --help output
+      - Improve clarity while preserving structure
+      - Document help text changes in changelog
+
+alternatives:
+  - approach: "Allow breaking changes in v1.0.0 (document migration)"
+    pros:
+      - "Freedom to improve CLI design"
+      - "Fix legacy issues"
+    cons:
+      - "Users need to update scripts"
+      - "Violates zero-configuration principle"
+    reason_rejected: "Constitution requires backward compatibility for major version bumps"
+
+  - approach: "Provide both v0.2.x and v1.0.0 CLI (--legacy flag)"
+    pros:
+      - "Full backward compatibility"
+      - "Freedom to innovate new CLI"
+    cons:
+      - "Maintenance burden (two CLIs)"
+      - "Confusing for users"
+    reason_rejected: "Complexity not justified; full compatibility achievable"
+
+success_criteria:
+  quantitative:
+    - "100% of v0.2.x E2E tests pass against v1.0.0"
+    - "100% of CLI commands/flags unchanged"
+    - "100% of exit codes unchanged"
+    - "Output format matches v0.2.x (byte-for-byte, excluding timestamps)"
+
+  qualitative:
+    - "Users report zero issues upgrading from v0.2.x"
+    - "Scripts written for v0.2.x work unchanged in v1.0.0"
+    - "No user-facing changes detected (transparent upgrade)"
+
+sprint_tasks:
+  planning:
+    - task: "T012-001"
+      description: "Document v0.2.x CLI contract (commands, flags, output)"
+      assignee: "@peternicholls"
+      estimate: "1 SP"
+
+  implementation:
+    - task: "T012-002"
+      description: "Implement Cobra commands matching v0.2.x"
+      assignee: "@peternicholls"
+      estimate: "2 SP (part of F011)"
+
+    - task: "T012-003"
+      description: "Preserve output format in Go (match v0.2.x spacing, columns)"
+      assignee: "@peternicholls"
+      estimate: "1 SP"
+
+  testing:
+    - task: "T012-004"
+      description: "Create CLI contract test suite (unit tests)"
+      assignee: "@peternicholls"
+      estimate: "1 SP"
+
+    - task: "T012-005"
+      description: "Create golden file tests (output comparison)"
+      assignee: "@peternicholls"
+      estimate: "1 SP"
+
+    - task: "T012-006"
+      description: "Run full v0.2.x E2E suite against v1.0.0"
+      assignee: "@peternicholls"
+      estimate: "1 SP"
+
+    - task: "T012-007"
+      description: "Manual testing with real user scripts"
+      assignee: "@peternicholls"
+      estimate: "1 SP"
+
+  documentation:
+    - task: "T012-008"
+      description: "Create tests/e2e/CLI_CONTRACT.md"
+      assignee: "@peternicholls"
+      estimate: "0.5 SP"
+
+    - task: "T012-009"
+      description: "Update changelog with CLI compatibility notes"
+      assignee: "@peternicholls"
+      estimate: "0.5 SP"
+
+notes: |
+  Constitution Compliance: This feature ensures Principle II (Zero-Configuration)
+  and Principle VIII (Forward Compatibility) are maintained during the Bash → Go
+  migration, providing a seamless upgrade experience.
+
+  Related documents:
+  - F011 Go Core Library (implementation being validated)
+  - F009 Error Handling & Exit Codes (exit code contract)
+  - tests/e2e/*.bats (v0.2.x E2E test suite to be reused)
+
+  Testing Strategy:
+  1. **Unit Tests**: Verify CLI surface area (commands, flags, exit codes)
+  2. **Integration Tests**: Run all command/flag combinations
+  3. **E2E Tests**: Reuse entire v0.2.x test suite against v1.0.0
+  4. **Golden File Tests**: Byte-for-byte output comparison
+  5. **Manual Tests**: Real user scripts, side-by-side comparison
+
+  CLI Contract Components:
+  - **Commands**: add, list, rm, resume, pause, purge, version
+  - **Flags**: --checksum, --output, --rate-limit, --help, --version
+  - **Aliases**: -o (--output), -c (--checksum), -r (--rate-limit)
+  - **Output Format**: List table, confirmation messages, progress indicators
+  - **Exit Codes**: 0 (success), 1 (args), 2 (network), 3 (verify), 4 (permission), 130 (interrupt)
+  - **Error Messages**: Format and content unchanged
+
+  Validation Checklist:
+  - [ ] All v0.2.x commands work in v1.0.0
+  - [ ] All v0.2.x flags work in v1.0.0
+  - [ ] Output format matches (golden file tests pass)
+  - [ ] Exit codes match (all error scenarios)
+  - [ ] Error messages match (or improved)
+  - [ ] Help text complete and accurate
+  - [ ] Real user scripts tested
+
+  Post-Release:
+  - Monitor user feedback for compatibility issues
+  - Document any intentional changes (if any)
+  - Update CLI_CONTRACT.md with learnings
+
+  See also:
+  - tests/e2e/CLI_CONTRACT.md (CLI surface area documentation)
+  - F011 Go Core Library (implementation)
+  - Constitution Principle II and VIII (rationale)
