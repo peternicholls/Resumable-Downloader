@@ -1,0 +1,563 @@
+metadata:
+  id: "F008"
+  name: "Accessibility"
+  version: "0.2.0"
+  sprint: 2
+  status: "planned"
+  priority: "P2"
+  story_points: 8
+  created: "2025-12-25"
+  updated: "2025-12-25"
+
+description: |
+  Implement comprehensive accessibility features including theme support (light,
+  dark, high-contrast), colorblind-safe indicators, terminal dimension detection,
+  and screen reader compatibility to meet Constitution Principle XI (Accessibility).
+
+  Current v0.1.0 TUI lacks explicit accessibility features, relying solely on
+  color for status and not adapting to terminal capabilities. This feature ensures
+  SafeDownload is usable by all users regardless of visual abilities or terminal
+  configuration.
+
+constitution_compliance:
+  principles:
+    - id: "XI"
+      name: "Accessibility"
+      notes: "Core implementation of themes, colorblind safety, graceful degradation"
+
+    - id: "I"
+      name: "Professional User Experience"
+      notes: "Accessible design enhances professional UX for all users"
+
+  gates:
+    - gate: "Accessibility"
+      requirement: "All status indicators combine emoji + text labels"
+      test: "TestStatusIndicators_TextLabels in tests/accessibility/indicators_test.go"
+
+    - gate: "Accessibility"
+      requirement: "High-contrast theme readable on light/dark backgrounds"
+      test: "Manual test per dev/checklists/accessibility.md"
+
+    - gate: "Accessibility"
+      requirement: "TUI readable in 80-column terminal without horizontal scrolling"
+      test: "TestNarrowTerminal_80Columns in tests/accessibility/terminal_test.go"
+
+    - gate: "Accessibility"
+      requirement: "Screen reader announces status updates"
+      test: "Manual test with VoiceOver/Orca per dev/checklists/accessibility.md"
+
+user_stories:
+  - id: "US008-1"
+    priority: "P1"
+    title: "Theme selection for different visual preferences"
+    description: |
+      As a user with visual impairments,
+      I want to choose between light, dark, and high-contrast themes,
+      So that the TUI is readable in my environment.
+
+    acceptance_criteria:
+      - "GIVEN no --theme flag, WHEN TUI starts, THEN default theme (dark) is used"
+      - "GIVEN --theme light, WHEN TUI starts, THEN light color scheme is used"
+      - "GIVEN --theme dark, WHEN TUI starts, THEN dark color scheme is used"
+      - "GIVEN --theme high-contrast, WHEN TUI starts, THEN high-contrast theme with bold text is used"
+      - "GIVEN invalid theme name, WHEN TUI starts, THEN error message shown with available themes"
+
+    independent_test: |
+      1. Run: safedownload --theme high-contrast
+      2. Visual inspection: Text should have high contrast (white on black or black on white)
+      3. Run: safedownload --theme invalid
+      4. Verify: Error message lists available themes (light, dark, high-contrast)
+
+    definition_of_done:
+      - "--theme flag implemented (light, dark, high-contrast)"
+      - "Theme stored in config.json for persistence"
+      - "ANSI color codes correct for each theme"
+      - "Unit tests verify color codes"
+      - "Manual visual verification completed"
+      - "README updated with --theme documentation"
+
+  - id: "US008-2"
+    priority: "P1"
+    title: "Colorblind-safe status indicators"
+    description: |
+      As a colorblind user,
+      I want status indicators that don't rely solely on color,
+      So that I can distinguish between download states.
+
+    acceptance_criteria:
+      - "GIVEN any status, WHEN displayed, THEN emoji AND text label shown (e.g., '✅ Completed')"
+      - "GIVEN two different statuses, WHEN displayed, THEN distinguishable without color (emoji differs)"
+      - "GIVEN screenshot converted to grayscale, WHEN viewed, THEN all statuses distinguishable"
+      - "GIVEN red/green colorblindness simulation, WHEN viewed, THEN no confusion between success/error"
+
+    independent_test: |
+      1. Queue downloads with different statuses (queued, downloading, completed, failed, paused)
+      2. Take screenshot of TUI
+      3. Convert to grayscale using image editor
+      4. Verify: Each status has unique emoji and text label
+      5. Verify: No two statuses look identical in grayscale
+
+    definition_of_done:
+      - "All status indicators use emoji + text pattern"
+      - "Status emojis: ⏳ Queued, ⬇️ Downloading, ✅ Completed, ❌ Failed, ⏸️ Paused"
+      - "Color palette avoids red/green only combinations"
+      - "Grayscale test passed"
+      - "Colorblind simulation test passed"
+
+  - id: "US008-3"
+    priority: "P1"
+    title: "Terminal dimension detection and graceful degradation"
+    description: |
+      As a user with a narrow terminal,
+      I want the TUI to adapt to my terminal size,
+      So that I don't have to horizontally scroll or resize my terminal.
+
+    acceptance_criteria:
+      - "GIVEN terminal width <80 columns, WHEN TUI starts, THEN warning shown but TUI still works"
+      - "GIVEN terminal width 80 columns, WHEN TUI displays, THEN no horizontal scrolling required"
+      - "GIVEN terminal width >120 columns, WHEN TUI displays, THEN extra space used for additional info (ETA, speed)"
+      - "GIVEN very long filename, WHEN displayed in narrow terminal, THEN filename truncated with ellipsis"
+      - "GIVEN terminal resize, WHEN TUI active, THEN layout adjusts (if SIGWINCH supported)"
+
+    independent_test: |
+      1. Resize terminal to 80 columns: printf '\e[8;24;80t'
+      2. Run: safedownload (with queued downloads)
+      3. Verify: All content fits within 80 columns
+      4. Verify: Long filenames show as "very-long-fi...ame.zip"
+      5. Resize to 120 columns
+      6. Verify: Additional columns show ETA and speed
+
+    definition_of_done:
+      - "Terminal width detection via COLUMNS env var or stty"
+      - "Layout adapts to 60, 80, 100, 120+ column widths"
+      - "Filename truncation with ellipsis for narrow terminals"
+      - "Progress bar width scales with terminal width"
+      - "Unit tests for layout calculation"
+      - "Manual tests at 60, 80, 120 columns"
+
+  - id: "US008-4"
+    priority: "P2"
+    title: "Screen reader compatibility"
+    description: |
+      As a screen reader user,
+      I want status updates announced as text,
+      So that I can monitor downloads without visual output.
+
+    acceptance_criteria:
+      - "GIVEN TUI active, WHEN download status changes, THEN plain text update written to stdout"
+      - "GIVEN VoiceOver enabled, WHEN TUI displays queue, THEN each item announced with status"
+      - "GIVEN --plain flag, WHEN TUI starts, THEN no ANSI codes (pure text output)"
+      - "GIVEN TERM=dumb, WHEN TUI starts, THEN auto-detect and use plain mode"
+
+    independent_test: |
+      1. Enable VoiceOver (macOS): Cmd+F5
+      2. Run: safedownload
+      3. Listen: VoiceOver should announce status updates
+      4. Run: safedownload --plain
+      5. Verify: No ANSI escape codes in output (cat output shows readable text)
+
+    definition_of_done:
+      - "--plain flag implemented for screen reader mode"
+      - "Auto-detect TERM=dumb or SCREEN_READER env var"
+      - "Status updates written to stdout in plain text"
+      - "Manual test with VoiceOver (macOS) passed"
+      - "Manual test with Orca (Linux) passed"
+      - "README documents --plain flag and screen reader support"
+
+functional_requirements:
+  - id: "FR008-1"
+    description: "System MUST provide --theme flag with options: light, dark, high-contrast"
+    priority: "MUST"
+    test: "Run with each theme, verify ANSI color codes"
+
+  - id: "FR008-2"
+    description: "System MUST combine emoji and text for all status indicators"
+    priority: "MUST"
+    test: "Display all statuses, verify '✅ Completed' pattern"
+
+  - id: "FR008-3"
+    description: "System MUST detect terminal width and adapt layout"
+    priority: "MUST"
+    test: "Test at 60, 80, 120 columns, verify no overflow"
+
+  - id: "FR008-4"
+    description: "System MUST truncate long filenames with ellipsis in narrow terminals"
+    priority: "MUST"
+    test: "Display 100-char filename in 80-col terminal, verify truncation"
+
+  - id: "FR008-5"
+    description: "System SHOULD provide --plain flag for screen readers"
+    priority: "SHOULD"
+    test: "Run with --plain, verify no ANSI codes in output"
+
+  - id: "FR008-6"
+    description: "System SHOULD auto-detect TERM=dumb and use plain mode"
+    priority: "SHOULD"
+    test: "Set TERM=dumb, run TUI, verify plain output"
+
+  - id: "FR008-7"
+    description: "System MUST persist theme choice in config.json"
+    priority: "MUST"
+    test: "Set theme, restart, verify theme persisted"
+
+non_functional_requirements:
+  performance:
+    - "Theme switching MUST NOT add >10ms to TUI startup"
+    - "Terminal dimension detection MUST complete in <5ms"
+
+  usability:
+    - "Default theme (dark) MUST be readable on both light and dark terminal backgrounds"
+    - "High-contrast theme MUST meet WCAG AA contrast ratio (4.5:1)"
+    - "Filename truncation MUST preserve file extension when possible"
+
+  accessibility:
+    - "All statuses distinguishable in grayscale (not color-dependent)"
+    - "Emoji + text pattern used consistently across all UI"
+    - "Screen reader mode provides same information as visual mode"
+    - "No reliance on cursor position for critical information"
+
+  platform_support:
+    - "Tier 1: macOS (VoiceOver), Ubuntu LTS (Orca), Debian 12+"
+    - "Terminal compatibility: Terminal.app, iTerm2, gnome-terminal, xterm"
+
+implementation:
+  packages:
+    - name: "pkg/ui/theme"
+      purpose: "Theme definitions and ANSI color management"
+      new_files:
+        - "pkg/ui/theme/theme.go (theme definitions)"
+        - "pkg/ui/theme/colors.go (ANSI color codes)"
+        - "pkg/ui/theme/theme_test.go"
+      modified_files: []
+
+    - name: "pkg/ui/terminal"
+      purpose: "Terminal dimension detection and layout calculation"
+      new_files:
+        - "pkg/ui/terminal/dimensions.go (detect width/height)"
+        - "pkg/ui/terminal/layout.go (calculate layout for width)"
+        - "pkg/ui/terminal/dimensions_test.go"
+      modified_files: []
+
+    - name: "pkg/ui"
+      purpose: "Integrate theme and terminal detection"
+      new_files: []
+      modified_files:
+        - "pkg/ui/ui.go (apply theme, detect terminal)"
+        - "pkg/ui/progress.go (adaptive progress bar width)"
+        - "pkg/ui/status.go (emoji + text status indicators)"
+
+  bash_changes:
+    - file: "safedownload"
+      changes:
+        - "Add --theme flag parsing"
+        - "Add --plain flag parsing"
+        - "Detect terminal width via tput cols or stty size"
+        - "Apply ANSI color codes based on theme"
+        - "Truncate filenames for narrow terminals"
+
+  cli:
+    new_flags:
+      - flag: "--theme"
+        type: "string"
+        default: "dark"
+        description: "TUI theme: light, dark, or high-contrast. Persisted in config.json."
+
+      - flag: "--plain"
+        type: "boolean"
+        default: "false"
+        description: "Disable ANSI colors and styling for screen readers. Auto-enabled if TERM=dumb."
+
+    new_commands: []
+
+  schema_changes:
+    state_json:
+      version: "1.0.0"
+      changes: []
+
+    config_json:
+      version: "1.0.0"
+      changes:
+        - type: "add"
+          field: "ui.theme"
+          data_type: "string"
+          optional: true
+          migration: "Defaults to 'dark' if missing"
+
+        - type: "add"
+          field: "ui.plain_mode"
+          data_type: "boolean"
+          optional: true
+          migration: "Defaults to false if missing"
+
+  storage:
+    - "Theme preference stored in ~/.safedownload/config.json"
+
+testing:
+  unit_tests:
+    - file: "pkg/ui/theme/theme_test.go"
+      functions:
+        - "TestTheme_Light"
+        - "TestTheme_Dark"
+        - "TestTheme_HighContrast"
+        - "TestTheme_InvalidName"
+      coverage_target: "100%"
+
+    - file: "pkg/ui/terminal/dimensions_test.go"
+      functions:
+        - "TestDetectWidth_80Columns"
+        - "TestDetectWidth_120Columns"
+        - "TestDetectWidth_Fallback"
+      coverage_target: "90%"
+
+    - file: "pkg/ui/terminal/layout_test.go"
+      functions:
+        - "TestLayout_NarrowTerminal"
+        - "TestLayout_WideTerminal"
+        - "TestTruncateFilename"
+      coverage_target: "90%"
+
+    - file: "pkg/ui/status_test.go"
+      functions:
+        - "TestStatusIndicators_EmojiPlusText"
+        - "TestStatusIndicators_Grayscale"
+      coverage_target: "100%"
+
+  integration_tests:
+    - file: "tests/integration/theme_test.go"
+      scenarios:
+        - "Load theme from config.json"
+        - "Switch theme and verify persistence"
+      coverage_target: "Theme lifecycle"
+
+  e2e_tests:
+    - file: "tests/e2e/accessibility_test.bats"
+      scenarios:
+        - "CLI: --theme high-contrast renders correctly"
+        - "CLI: --plain disables ANSI codes"
+        - "CLI: Narrow terminal (80 cols) graceful degradation"
+
+  manual_tests:
+    - file: "dev/checklists/accessibility.md"
+      sections:
+        - "High-contrast visual check"
+        - "Grayscale test (colorblind simulation)"
+        - "Narrow terminal test (80 columns)"
+        - "Screen reader test (VoiceOver/Orca)"
+        - "Keyboard-only navigation"
+
+dependencies:
+  external:
+    - name: "None (stdlib only)"
+      version: "N/A"
+      license: "N/A"
+      justification: "Terminal detection via stty/tput (POSIX)"
+      optional: false
+
+  internal: []
+
+  platform:
+    - "POSIX terminal utilities: tput, stty"
+    - "ANSI escape code support in terminal emulator"
+    - "macOS VoiceOver (for screen reader testing)"
+    - "Linux Orca (for screen reader testing)"
+
+documentation:
+  readme_sections:
+    - section: "Accessibility"
+      changes: |
+        Add new "Accessibility" section explaining:
+        - Theme options (--theme flag: light, dark, high-contrast)
+        - Colorblind-safe design (emoji + text indicators)
+        - Screen reader support (--plain flag, auto-detection)
+        - Terminal compatibility (adaptive layout for 60-120+ columns)
+
+    - section: "Configuration"
+      changes: |
+        Document config.json UI options:
+        - ui.theme (default: dark)
+        - ui.plain_mode (default: false, auto-enabled for TERM=dumb)
+
+  new_docs:
+    - file: "docs/ACCESSIBILITY.md"
+      purpose: "Detailed accessibility guide for users with disabilities"
+
+  changelog:
+    type: "Added"
+    entry: |
+      ### Accessibility (Principle XI: Accessibility)
+      - Theme support: --theme flag with light, dark, high-contrast options
+      - Colorblind-safe indicators: Emoji + text labels for all statuses
+      - Terminal adaptation: Graceful degradation for 60-120+ column widths
+      - Screen reader mode: --plain flag disables ANSI codes
+      - Auto-detection: TERM=dumb triggers plain mode automatically
+      - Filename truncation: Long names truncated with ellipsis in narrow terminals
+
+edge_cases:
+  - case: "Terminal width cannot be detected"
+    expected_behavior: "Assume 80 columns (safe default)"
+    test: "TestDimensionsDetection_Fallback"
+
+  - case: "Invalid theme name in config.json"
+    expected_behavior: "Warn user, fall back to dark theme"
+    test: "TestTheme_InvalidInConfig"
+
+  - case: "Filename longer than terminal width"
+    expected_behavior: "Truncate to 'start...end' preserving extension"
+    test: "TestTruncateFilename_VeryLong"
+
+  - case: "Terminal resize during TUI session (SIGWINCH)"
+    expected_behavior: "Redraw layout with new dimensions (future enhancement)"
+    test: "Manual test (SIGWINCH handling complex, defer to v1.1.0)"
+
+  - case: "No emoji support in terminal (font missing)"
+    expected_behavior: "Text labels still show status clearly"
+    test: "Visual test with emoji-less font"
+
+error_handling:
+  - error: "Invalid theme name"
+    exit_code: 1
+    retry: false
+    user_action: "Use --theme light, dark, or high-contrast"
+
+  - error: "Terminal too narrow (<60 columns)"
+    exit_code: 0
+    retry: false
+    user_action: "Warning shown, TUI works with minimal layout"
+
+risks:
+  - id: "RISK008-1"
+    title: "Theme doesn't work in all terminal emulators"
+    impact: "medium"
+    probability: "medium"
+    mitigation: |
+      - Test on Tier 1 terminal emulators (Terminal.app, iTerm2, gnome-terminal)
+      - Provide --plain fallback for incompatible terminals
+      - Document tested terminals in README
+
+  - id: "RISK008-2"
+    title: "Screen reader support varies by platform"
+    impact: "medium"
+    probability: "high"
+    mitigation: |
+      - Manual testing on VoiceOver (macOS) and Orca (Linux)
+      - --plain mode provides baseline compatibility
+      - User feedback loop to improve screen reader experience
+
+  - id: "RISK008-3"
+    title: "Colorblind users still have difficulty"
+    impact: "medium"
+    probability: "low"
+    mitigation: |
+      - Use emoji + text pattern (never color-only)
+      - Test with colorblind simulation tools
+      - High-contrast theme as additional option
+
+alternatives:
+  - approach: "Use ncurses for advanced terminal control"
+    pros:
+      - "Professional terminal UI library"
+      - "Better dimension detection and resize handling"
+    cons:
+      - "Adds external dependency (violates Principle II)"
+      - "Overkill for simple TUI"
+    reason_rejected: "Constitution requires minimal dependencies; ANSI codes sufficient"
+
+  - approach: "Detect terminal capabilities via terminfo"
+    pros:
+      - "More accurate capability detection"
+    cons:
+      - "Complex, platform-specific"
+      - "Overkill for 3 themes"
+    reason_rejected: "Simple ANSI code approach works on all Tier 1 platforms"
+
+success_criteria:
+  quantitative:
+    - "100% of status indicators have emoji + text labels"
+    - "High-contrast theme meets WCAG AA (4.5:1 contrast ratio)"
+    - "TUI readable in 80-column terminal without scrolling"
+    - "All accessibility checklist items pass"
+
+  qualitative:
+    - "Users with visual impairments report positive experience"
+    - "Screen reader users can monitor downloads effectively"
+    - "No accessibility-related issues reported in first 2 weeks"
+
+sprint_tasks:
+  setup:
+    - task: "T008-001"
+      description: "Design theme color palettes (light, dark, high-contrast)"
+      assignee: "@peternicholls"
+      estimate: "1 SP"
+
+  implementation:
+    - task: "T008-002"
+      description: "Implement theme module with ANSI color codes"
+      assignee: "@peternicholls"
+      estimate: "2 SP"
+
+    - task: "T008-003"
+      description: "Implement terminal dimension detection"
+      assignee: "@peternicholls"
+      estimate: "1 SP"
+
+    - task: "T008-004"
+      description: "Implement adaptive layout (60, 80, 120+ columns)"
+      assignee: "@peternicholls"
+      estimate: "2 SP"
+
+    - task: "T008-005"
+      description: "Update status indicators to emoji + text pattern"
+      assignee: "@peternicholls"
+      estimate: "1 SP"
+
+    - task: "T008-006"
+      description: "Implement --plain flag and auto-detection"
+      assignee: "@peternicholls"
+      estimate: "1 SP"
+
+  testing:
+    - task: "T008-007"
+      description: "Write unit tests for theme and layout"
+      assignee: "@peternicholls"
+      estimate: "2 SP"
+
+    - task: "T008-008"
+      description: "Complete accessibility checklist (manual tests)"
+      assignee: "@peternicholls"
+      estimate: "2 SP"
+
+  documentation:
+    - task: "T008-009"
+      description: "Update README with Accessibility section"
+      assignee: "@peternicholls"
+      estimate: "1 SP"
+
+    - task: "T008-010"
+      description: "Create docs/ACCESSIBILITY.md guide"
+      assignee: "@peternicholls"
+      estimate: "1 SP"
+
+notes: |
+  Constitution Compliance: This feature implements Principle XI (Accessibility)
+  by ensuring SafeDownload is usable by all users regardless of visual abilities,
+  terminal configuration, or assistive technology needs.
+
+  Related Constitution sections:
+  - Principle XI: Accessibility (core principle)
+  - Principle I: Professional User Experience (accessible design is professional)
+  - Technical Constraints: UI/UX Standards (colorblind-safe, high-contrast)
+
+  Implementation Notes:
+  - For v0.2.0 (Bash): Use tput/stty for dimension detection, simple ANSI codes
+  - For v1.0.0+ (Go): Use syscall or x/term for better terminal control
+  - For v1.1.0 (Bubble Tea): Bubble Tea has built-in theme and dimension support
+
+  Testing Strategy:
+  - Automated tests for theme color codes and layout calculations
+  - Manual tests for visual appearance and screen reader compatibility
+  - Use dev/checklists/accessibility.md as verification checklist
+
+  Future Enhancements (v1.1.0+):
+  - SIGWINCH handling for dynamic resize
+  - Custom theme configuration (user-defined colors)
+  - Sound alerts (optional, for visually impaired users)

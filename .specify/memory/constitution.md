@@ -1,11 +1,11 @@
 <!--
 Sync Impact Report
-- Version: 1.3.0 -> 1.4.0
+- Version: 1.4.0 -> 1.5.0
 - Modified principles: None
-- Added sections: XII. Documentation Organization & Standards; XIII. Specification Structure & Precision
+- Added sections: Sprint Planning Standards (under Development Workflow & Quality Gates); expanded Testing Requirements with coverage targets and accessibility checklist; expanded Dev Folder Structure with comprehensive file listing
 - Removed sections: None
-- Templates requiring updates: plan-template.md ✅ (already references dev/ structure), spec-template.md ✅ (already uses structured format), tasks-template.md ✅ (already aligned), checklist-template.md ✅, agent-file-template.md ✅
-- Follow-up TODOs: Ensure all code has idiomatic documentation (jdoc/godoc/rustdoc/etc.); validate dev/ folder structure; consider adding TOML alternatives for YAML specs
+- Templates requiring updates: None (all templates already exist and aligned: sprint-template.yaml ✅, feature-template.yaml ✅, accessibility checklist ✅)
+- Follow-up TODOs: Create sprint-01.yaml when starting first sprint; validate all feature specs use template format; ensure CI enforces 80% Go coverage target
 -->
 
 # SafeDownload Constitution
@@ -125,6 +125,20 @@ Roadmaps, feature specifications, and planning artifacts SHOULD prefer structure
 - Installation scripts (`install.sh` and `install-tui.sh`) MUST be tested on Tier 1 platforms (macOS, Ubuntu LTS)
 - Security testing: HTTPS enforcement, checksum verification, and `--insecure` flag behavior validated in test suite
 - Accessibility testing: high-contrast mode and screen-reader compatibility verified manually on each release
+- **Test Coverage Targets**:
+  - Go code (v1.0.0+): ≥80% line coverage (enforced in CI)
+  - Bash/Shell code (v0.x): ≥60% function coverage (via BATS + kcov)
+  - All public APIs: 100% documentation coverage (godoc, docstrings, JSDoc)
+- **Test Organization** (per `dev/standards/testing.md`):
+  - Unit tests: 60% of total, <5s execution, no external dependencies
+  - Integration tests: 30% of total, <30s execution, component interactions
+  - E2E tests: 10% of total, full CLI workflows with real binary
+  - Constitution gates MUST be tested: performance benchmarks, security tests, accessibility tests
+- **Accessibility Testing Checklist** (`dev/checklists/accessibility.md`):
+  - MUST be completed before merging any TUI changes
+  - Includes: high-contrast mode, colorblind safety, screen reader compatibility, keyboard-only navigation
+  - All status indicators MUST combine emoji + text labels (never color-only)
+  - Terminal width detection and graceful degradation for narrow terminals (<80 columns)
 
 **Documentation Standards**:
 - README.md MUST include quick-start examples (basic download, checksum verification, batch manifest, TUI launch)
@@ -143,14 +157,41 @@ Roadmaps, feature specifications, and planning artifacts SHOULD prefer structure
   - Bash/Shell: Header comments with usage, arguments, exit codes; inline comments for complex logic only
 
 - **Dev Folder Structure**:
+  - `dev/INDEX.md`: Quick reference index to all development documents
+  - `dev/README.md`: Development organization guide and workflow overview
+  - `dev/SPRINT_PLANNING_GUIDE.md`: Comprehensive 2-week sprint planning workflow
   - `dev/roadmap.yaml`: Master roadmap with versioned release plans (semantic versioning)
-  - `dev/specs/features/[###-feature-name]/`: Feature specifications with plan.md, spec.md, research.md
-  - `dev/sprints/`: Sprint planning artifacts (backlog, velocity tracking)
+  - `dev/specs/`: Feature specifications
+    - `dev/specs/feature-template.yaml`: Template for new feature specs
+    - `dev/specs/features/F###-name.yaml`: Individual feature specifications (YAML format)
+  - `dev/sprints/`: Sprint planning artifacts
+    - `dev/sprints/sprint-template.yaml`: Template for sprint planning
+    - `dev/sprints/sprint-NN.yaml`: Executed sprint plans with daily logs and retrospectives
   - `dev/architecture/`: System architecture docs (ADRs, diagrams, API contracts)
+    - Architecture docs MUST include: Executive Summary, Goals, Architecture, Migration Strategy, Success Criteria
+    - Markdown format with YAML frontmatter for metadata
   - `dev/standards/`: Coding standards, style guides, tooling configs
-  
+    - `dev/standards/documentation.md`: Code documentation requirements (idiomatic to each language)
+    - `dev/standards/testing.md`: Testing requirements and coverage targets
+  - `dev/checklists/`: Quality gate checklists
+    - `dev/checklists/accessibility.md`: Accessibility testing checklist (MUST pass before TUI changes merge)
+
 - **Structured Spec Format**:
   - Feature metadata (ID, priority, story points, dependencies) MUST be YAML frontmatter or dedicated YAML files
+  - Feature specs MUST use `dev/specs/feature-template.yaml` as basis, including:
+    - `metadata`: id, name, version, status, priority, story_points
+    - `description`: Brief feature purpose
+    - `user_stories`: With acceptance criteria in GIVEN/WHEN/THEN format
+    - `constitution_compliance`: Principles addressed and quality gates
+    - `functional_requirements`: Testable requirements with test descriptions
+    - `implementation`: Packages, CLI changes, schema changes
+    - `testing`: Unit, integration, e2e test plans
+    - `documentation`: README/CHANGELOG update requirements
+  - Sprint plans MUST use `dev/sprints/sprint-template.yaml` including:
+    - Daily progress tracking (`daily_log`)
+    - Constitution compliance verification (`retrospective.constitution_compliance`)
+    - Action items with owners and due dates
+    - Velocity tracking (completed vs. planned story points)
   - Acceptance criteria MUST be structured checklists or YAML lists for programmatic validation
   - Roadmap data (releases, features, risks, metrics) MUST be YAML/TOML, not Markdown tables
   - Narrative docs (rationale, design decisions, migration guides) remain Markdown
@@ -201,6 +242,31 @@ Roadmaps, feature specifications, and planning artifacts SHOULD prefer structure
   - Code lacking idiomatic documentation (godoc, rustdoc, etc.) MUST be rejected
   - YAML spec files MUST validate against schemas (when schema defined)
   - Architecture changes MUST include ADR (Architecture Decision Record) in `dev/architecture/`
+  - Feature specs MUST be created using `dev/specs/feature-template.yaml` before implementation
+  - Sprint retrospectives MUST document constitution gate compliance in `retrospective.constitution_compliance` section
+
+**Sprint Planning Standards**:
+- **Sprint Duration**: 2 weeks (10 working days)
+- **Sprint Velocity**: 20-25 story points per sprint (single developer), with 20% buffer for unknowns
+- **Sprint Ceremonies** (per `dev/SPRINT_PLANNING_GUIDE.md`):
+  - Planning (Day 1, 2 hours): Select features, break into tasks, define gates
+  - Daily standup (Daily, 15 min): Progress update, blockers
+  - Review (Last day AM, 1 hour): Demo completed features, verify gates
+  - Retrospective (Last day PM, 1 hour): What went well, what to improve, action items
+- **Sprint Artifacts**:
+  - Sprint plan: Created from `dev/sprints/sprint-template.yaml`
+  - Daily logs: Progress tracking in `daily_log` section
+  - Retrospective: Completed in sprint YAML with action items for next sprint
+  - Constitution compliance: Gates verified in `retrospective.constitution_compliance`
+- **Task Breakdown**:
+  - All tasks ≤5 story points (if larger, break down further)
+  - Tasks linked to feature IDs from roadmap
+  - Dependencies tracked between tasks
+  - Days 1-2: Setup, Days 3-6: Implementation, Days 7-8: Testing, Days 9-10: Documentation
+- **Velocity Tracking**:
+  - Formula: (completed_story_points / planned_story_points) * 100
+  - Target: 80-99% velocity (adjust next sprint if outside range)
+  - Track in `review.velocity_percentage` in sprint YAML
 
 ## Governance
 
@@ -230,4 +296,4 @@ All pull requests MUST verify alignment with these principles. Exceptions requir
 
 For runtime development guidance (coding style, common patterns, troubleshooting), see the project README.md and individual documentation files. This constitution defines the non-negotiable values and constraints; other documents provide practical implementation details.
 
-**Version**: 1.4.0 | **Ratified**: 2025-12-24 | **Last Amended**: 2025-12-24
+**Version**: 1.5.0 | **Ratified**: 2025-12-24 | **Last Amended**: 2025-12-25

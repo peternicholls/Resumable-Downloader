@@ -1,0 +1,516 @@
+metadata:
+  id: "F007"
+  name: "Privacy & Data Minimization"
+  version: "0.2.0"
+  sprint: 1
+  status: "planned"
+  priority: "P1"
+  story_points: 5
+  created: "2025-12-25"
+  updated: "2025-12-25"
+
+description: |
+  Implement comprehensive privacy controls including /purge command, log rotation,
+  and credential leak prevention to meet Constitution Principle IX (Privacy & Data
+  Minimization).
+
+  Current v0.1.0 lacks explicit data cleanup commands and log rotation, which
+  could accumulate sensitive data over time. This feature ensures users have
+  complete control over their local data and prevents credential exposure.
+
+constitution_compliance:
+  principles:
+    - id: "IX"
+      name: "Privacy & Data Minimization"
+      notes: "Core implementation of /purge, log rotation, no credential logging"
+
+    - id: "X"
+      name: "Security Posture"
+      notes: "No credential storage complements HTTPS enforcement"
+
+  gates:
+    - gate: "Privacy"
+      requirement: "/purge removes all state, logs, PIDs"
+      test: "TestPurgeCommand in tests/privacy/purge_test.go"
+
+    - gate: "Privacy"
+      requirement: "Log size capped at 10MB with rotation"
+      test: "TestLogRotation in tests/privacy/log_rotation_test.go"
+
+    - gate: "Security"
+      requirement: "No credentials in logs (audit all log statements)"
+      test: "TestNoCredentialsInLogs in tests/security/credential_leak_test.go"
+
+user_stories:
+  - id: "US007-1"
+    priority: "P1"
+    title: "Purge all local data with single command"
+    description: |
+      As a privacy-conscious user,
+      I want a /purge command to delete all download state and logs,
+      So that I can completely remove SafeDownload's data footprint.
+
+    acceptance_criteria:
+      - "GIVEN active downloads exist, WHEN I run /purge, THEN I'm warned and must confirm"
+      - "GIVEN I confirm /purge, WHEN command executes, THEN state.json, config.json, queue.json, safedownload.log, and all PIDs are deleted"
+      - "GIVEN no active downloads, WHEN I run /purge, THEN deletion happens immediately without confirmation"
+      - "GIVEN /purge completes, WHEN I list ~/.safedownload/, THEN directory is empty or contains only .gitkeep"
+
+    independent_test: |
+      1. Create test downloads in state
+      2. Run: safedownload --tui
+      3. Execute: /purge
+      4. Verify: Confirmation prompt appears
+      5. Confirm deletion
+      6. Verify: ls ~/.safedownload/ shows empty directory
+
+    definition_of_done:
+      - "/purge command implemented in TUI"
+      - "--purge CLI flag implemented"
+      - "Confirmation prompt for active downloads"
+      - "Unit tests pass (>80% coverage)"
+      - "E2E test verifies complete deletion"
+      - "README updated with /purge documentation"
+
+  - id: "US007-2"
+    priority: "P1"
+    title: "Automatic log rotation at 10MB"
+    description: |
+      As a long-term user,
+      I want logs to automatically rotate when they reach 10MB,
+      So that SafeDownload doesn't consume excessive disk space.
+
+    acceptance_criteria:
+      - "GIVEN log file <10MB, WHEN new entry written, THEN appended normally"
+      - "GIVEN log file ≥10MB, WHEN new entry written, THEN old log renamed to .log.1 and new log started"
+      - "GIVEN .log.1 exists, WHEN rotation triggers, THEN .log.1 renamed to .log.2 and new .log.1 created"
+      - "GIVEN .log.10 exists (10 rotations), WHEN rotation triggers, THEN oldest log deleted"
+
+    independent_test: |
+      1. Generate 10MB of log entries (loop download commands)
+      2. Trigger one more log entry
+      3. Verify: safedownload.log is <10MB
+      4. Verify: safedownload.log.1 exists and contains old entries
+
+    definition_of_done:
+      - "Log rotation implemented in logger module"
+      - "10MB threshold enforced"
+      - "Up to 10 rotated logs kept (.log.1 through .log.10)"
+      - "Unit tests verify rotation logic"
+      - "Integration test with actual 10MB+ logs"
+
+  - id: "US007-3"
+    priority: "P1"
+    title: "Audit all logging for credential leaks"
+    description: |
+      As a security engineer,
+      I want assurance that no credentials appear in logs,
+      So that passwords/tokens aren't exposed if logs are shared.
+
+    acceptance_criteria:
+      - "GIVEN URL with Basic Auth (http://user:pass@host/file), WHEN logged, THEN appears as http://user:***@host/file"
+      - "GIVEN Authorization header, WHEN logged, THEN value replaced with [REDACTED]"
+      - "GIVEN proxy credentials in HTTP_PROXY, WHEN logged, THEN sanitized"
+      - "GIVEN any log statement, WHEN audited, THEN no password/token patterns found"
+
+    independent_test: |
+      1. Download from URL: https://user:password123@example.com/file.zip
+      2. Check safedownload.log
+      3. Verify: "password123" does NOT appear anywhere
+      4. Verify: Pattern like "user:***@example.com" appears instead
+
+    definition_of_done:
+      - "URL sanitization function implemented"
+      - "Header sanitization function implemented"
+      - "All log.* calls use sanitized inputs"
+      - "Security test scans logs for credential patterns"
+      - "Documentation warns against logging raw URLs"
+
+functional_requirements:
+  - id: "FR007-1"
+    description: "System MUST provide /purge TUI command to delete all state"
+    priority: "MUST"
+    test: "Execute /purge, verify ~/.safedownload/ is empty"
+
+  - id: "FR007-2"
+    description: "System MUST provide --purge CLI flag equivalent to /purge"
+    priority: "MUST"
+    test: "Run safedownload --purge, verify all data deleted"
+
+  - id: "FR007-3"
+    description: "System MUST confirm purge if active downloads exist"
+    priority: "MUST"
+    test: "Start download, run /purge, verify confirmation prompt"
+
+  - id: "FR007-4"
+    description: "System MUST rotate logs when safedownload.log reaches 10MB"
+    priority: "MUST"
+    test: "Generate 10MB log, trigger rotation, verify .log.1 created"
+
+  - id: "FR007-5"
+    description: "System MUST keep maximum 10 rotated logs (.log.1 through .log.10)"
+    priority: "MUST"
+    test: "Trigger 11 rotations, verify .log.11 doesn't exist"
+
+  - id: "FR007-6"
+    description: "System MUST sanitize URLs in logs (hide credentials)"
+    priority: "MUST"
+    test: "Log URL with password, verify password not in log file"
+
+  - id: "FR007-7"
+    description: "System MUST sanitize HTTP headers in logs (Authorization, etc.)"
+    priority: "MUST"
+    test: "Log request with Authorization header, verify [REDACTED] in log"
+
+non_functional_requirements:
+  performance:
+    - "/purge command MUST complete in <1 second (even with large state files)"
+    - "Log rotation MUST NOT block download operations (async rotation)"
+
+  security:
+    - "No credentials logged (URLs sanitized, headers redacted)"
+    - "Purge MUST not leave recoverable data (files truly deleted, not just renamed)"
+
+  privacy:
+    - "All download metadata remains local (no external transmission)"
+    - "/purge provides complete data removal"
+    - "Log rotation ensures old data naturally expires"
+
+  usability:
+    - "/purge confirmation message MUST be clear about what will be deleted"
+    - "Log rotation MUST be transparent (no user intervention required)"
+
+  platform_support:
+    - "Tier 1: macOS, Ubuntu LTS, Debian 12+ (log rotation via logrotate-compatible approach)"
+
+implementation:
+  packages:
+    - name: "pkg/state"
+      purpose: "Add Purge() method"
+      new_files: []
+      modified_files:
+        - "pkg/state/state.go (add Purge method)"
+        - "pkg/state/state_test.go (test purge)"
+
+    - name: "pkg/logger"
+      purpose: "Log rotation and credential sanitization"
+      new_files:
+        - "pkg/logger/rotation.go (log rotation logic)"
+        - "pkg/logger/sanitize.go (credential sanitization)"
+        - "pkg/logger/sanitize_test.go"
+      modified_files:
+        - "pkg/logger/logger.go (integrate rotation and sanitization)"
+
+    - name: "pkg/ui"
+      purpose: "Add /purge command to TUI"
+      new_files: []
+      modified_files:
+        - "pkg/ui/commands.go (parse /purge command)"
+        - "pkg/ui/ui.go (handle purge with confirmation)"
+
+  bash_changes:
+    - file: "safedownload"
+      changes:
+        - "Add --purge flag parsing"
+        - "Implement purge logic: rm -rf ~/.safedownload/*"
+        - "Add confirmation prompt for active downloads"
+        - "Integrate log sanitization in echo/log statements"
+
+  cli:
+    new_flags:
+      - flag: "--purge"
+        type: "boolean"
+        default: "false"
+        description: "Delete all SafeDownload state, logs, and PIDs. Prompts for confirmation if active downloads exist."
+
+    new_commands:
+      - command: "/purge"
+        description: "TUI slash command to purge all data"
+        args: "none"
+
+  schema_changes:
+    state_json:
+      version: "1.0.0"
+      changes: [] # No schema changes (purge deletes state entirely)
+
+    config_json:
+      version: "1.0.0"
+      changes:
+        - type: "add"
+          field: "logging.max_size_mb"
+          data_type: "integer"
+          optional: true
+          migration: "Defaults to 10 if missing"
+
+        - type: "add"
+          field: "logging.max_rotations"
+          data_type: "integer"
+          optional: true
+          migration: "Defaults to 10 if missing"
+
+  storage:
+    - "Purge deletes: state.json, config.json, queue.json, safedownload.log, pids/*"
+    - "Log rotation creates: safedownload.log.1 through safedownload.log.10"
+
+testing:
+  unit_tests:
+    - file: "pkg/state/state_test.go"
+      functions:
+        - "TestStatePurge_DeletesAllFiles"
+        - "TestStatePurge_EmptyDirectory"
+      coverage_target: "100%"
+
+    - file: "pkg/logger/rotation_test.go"
+      functions:
+        - "TestLogRotation_At10MB"
+        - "TestLogRotation_KeepsMax10Files"
+        - "TestLogRotation_DeletesOldest"
+      coverage_target: "90%"
+
+    - file: "pkg/logger/sanitize_test.go"
+      functions:
+        - "TestSanitizeURL_BasicAuth"
+        - "TestSanitizeURL_QueryParams"
+        - "TestSanitizeHeaders_Authorization"
+        - "TestSanitizeHeaders_ProxyAuth"
+      coverage_target: "100%"
+
+  integration_tests:
+    - file: "tests/integration/purge_test.go"
+      scenarios:
+        - "Full purge workflow with confirmation"
+        - "Purge with no active downloads (no confirmation)"
+      coverage_target: "Purge command end-to-end"
+
+    - file: "tests/integration/log_rotation_test.go"
+      scenarios:
+        - "Generate 10MB+ logs and verify rotation"
+        - "Multiple rotations (verify .log.1 through .log.10)"
+      coverage_target: "Log rotation lifecycle"
+
+  e2e_tests:
+    - file: "tests/e2e/privacy_test.bats"
+      scenarios:
+        - "CLI: --purge flag deletes all data"
+        - "TUI: /purge command with confirmation"
+        - "CLI: No credentials in logs after download with auth"
+
+  security_tests:
+    - file: "tests/security/credential_leak_test.go"
+      scenarios:
+        - "Download with Basic Auth URL (verify password not logged)"
+        - "Download with Authorization header (verify [REDACTED])"
+        - "Proxy with credentials (verify sanitization)"
+
+  manual_tests:
+    - "Visual verification: /purge confirmation prompt clear and informative"
+    - "Verify log rotation doesn't disrupt active downloads"
+
+dependencies:
+  external:
+    - name: "None (stdlib only)"
+      version: "N/A"
+      license: "N/A"
+      justification: "Pure stdlib implementation"
+      optional: false
+
+  internal:
+    - feature: "F006"
+      name: "Security Posture"
+      reason: "Credential sanitization complements HTTPS/TLS security"
+
+  platform:
+    - "POSIX file operations (rm, mv for Bash implementation)"
+    - "Go stdlib: os, path/filepath, io for Go implementation"
+
+documentation:
+  readme_sections:
+    - section: "Privacy"
+      changes: |
+        Add new "Privacy & Data Minimization" section explaining:
+        - /purge command and --purge flag
+        - Automatic log rotation (10MB cap)
+        - Credential sanitization policy
+        - Local-only data storage (no telemetry)
+
+    - section: "Configuration"
+      changes: |
+        Document config.json logging options:
+        - logging.max_size_mb (default: 10)
+        - logging.max_rotations (default: 10)
+
+  new_docs: []
+
+  changelog:
+    type: "Added"
+    entry: |
+      ### Privacy (Principle IX: Privacy & Data Minimization)
+      - /purge command: Delete all local state, logs, and PIDs
+      - --purge CLI flag: Non-interactive purge option
+      - Log rotation: Automatic rotation at 10MB (keeps 10 rotations)
+      - Credential sanitization: No passwords in logs (URLs/headers sanitized)
+      - Configuration: logging.max_size_mb and logging.max_rotations
+
+edge_cases:
+  - case: "/purge with active downloads"
+    expected_behavior: "Prompt for confirmation, list active downloads"
+    test: "TestPurge_WithActiveDownloads"
+
+  - case: "/purge with read-only filesystem"
+    expected_behavior: "Error message, exit code 4 (permission error)"
+    test: "TestPurge_ReadOnlyFilesystem"
+
+  - case: "Log rotation during active write"
+    expected_behavior: "Rotation waits for write completion (file lock or rename-after-close)"
+    test: "TestLogRotation_ConcurrentWrites"
+
+  - case: "Credential in URL fragment (#password)"
+    expected_behavior: "Fragment removed or sanitized"
+    test: "TestSanitizeURL_Fragment"
+
+  - case: "Malformed URL (no host, invalid scheme)"
+    expected_behavior: "Sanitization handles gracefully (best-effort redaction)"
+    test: "TestSanitizeURL_Malformed"
+
+error_handling:
+  - error: "Purge fails (permission denied)"
+    exit_code: 4
+    retry: false
+    user_action: "Check permissions on ~/.safedownload/ directory"
+
+  - error: "Log rotation fails (disk full)"
+    exit_code: 0
+    retry: true
+    retry_policy: "Log error, continue operations (rotation non-fatal)"
+
+  - error: "Purge cancelled by user (at confirmation)"
+    exit_code: 0
+    retry: false
+    user_action: "No action, purge aborted"
+
+risks:
+  - id: "RISK007-1"
+    title: "Accidental data loss via /purge"
+    impact: "high"
+    probability: "medium"
+    mitigation: |
+      - Confirmation prompt for active downloads
+      - Clear warning message about data deletion
+      - Document /purge behavior prominently in README
+      - Consider --force flag to skip confirmation (for automation)
+
+  - id: "RISK007-2"
+    title: "Log rotation breaks during concurrent writes"
+    impact: "medium"
+    probability: "low"
+    mitigation: |
+      - Use file locking or atomic rename
+      - Test with concurrent download scenario
+      - Rotation happens between writes, not during
+
+  - id: "RISK007-3"
+    title: "Credential sanitization bypass (new log statement without sanitization)"
+    impact: "high"
+    probability: "low"
+    mitigation: |
+      - Centralize all logging through logger package
+      - Automated security scan for credential patterns in tests
+      - Code review checklist includes "credential sanitization"
+
+alternatives:
+  - approach: "Use system logrotate instead of built-in rotation"
+    pros:
+      - "Standard Unix tool, well-tested"
+      - "Offloads rotation logic"
+    cons:
+      - "Requires user to configure logrotate (not automatic)"
+      - "Doesn't work on all platforms (e.g., macOS without homebrew logrotate)"
+    reason_rejected: "Constitution requires zero configuration; built-in rotation ensures it works everywhere"
+
+  - approach: "Encrypt logs instead of sanitizing"
+    pros:
+      - "Credentials safe even if logs leaked"
+    cons:
+      - "Requires key management (complexity)"
+      - "User can't read logs without decryption (usability)"
+    reason_rejected: "Sanitization simpler and achieves same goal (no credentials in plaintext)"
+
+success_criteria:
+  quantitative:
+    - "100% of credential patterns removed from logs (security scan)"
+    - "Log rotation keeps disk usage <100MB (10MB * 10 rotations)"
+    - "/purge deletes 100% of files in ~/.safedownload/"
+
+  qualitative:
+    - "Users feel confident about privacy (feedback positive)"
+    - "No accidental purges reported (confirmation works)"
+    - "Log rotation transparent (users don't notice it)"
+
+sprint_tasks:
+  setup:
+    - task: "T007-001"
+      description: "Design credential sanitization patterns (regex/rules)"
+      assignee: "@peternicholls"
+      estimate: "1 SP"
+
+  implementation:
+    - task: "T007-002"
+      description: "Implement URL sanitization function"
+      assignee: "@peternicholls"
+      estimate: "1 SP"
+
+    - task: "T007-003"
+      description: "Implement header sanitization function"
+      assignee: "@peternicholls"
+      estimate: "1 SP"
+
+    - task: "T007-004"
+      description: "Implement log rotation logic"
+      assignee: "@peternicholls"
+      estimate: "2 SP"
+
+    - task: "T007-005"
+      description: "Implement /purge command (TUI and CLI)"
+      assignee: "@peternicholls"
+      estimate: "1 SP"
+
+  testing:
+    - task: "T007-006"
+      description: "Write unit tests for sanitization"
+      assignee: "@peternicholls"
+      estimate: "1 SP"
+
+    - task: "T007-007"
+      description: "Write security tests for credential leak detection"
+      assignee: "@peternicholls"
+      estimate: "1 SP"
+
+    - task: "T007-008"
+      description: "Write E2E tests for /purge"
+      assignee: "@peternicholls"
+      estimate: "1 SP"
+
+  documentation:
+    - task: "T007-009"
+      description: "Update README with Privacy section"
+      assignee: "@peternicholls"
+      estimate: "1 SP"
+
+notes: |
+  Constitution Compliance: This feature implements Principle IX (Privacy & Data
+  Minimization) by ensuring users have complete control over their local data
+  and preventing credential exposure in logs.
+
+  Related Constitution sections:
+  - Principle IX: Privacy & Data Minimization (core principle)
+  - Principle X: Security Posture (credential sanitization complements TLS/HTTPS)
+  - Error Handling & Exit Codes (exit 4 for permission errors)
+
+  Implementation Notes:
+  - For v0.2.0 (Bash/Python): Implement in shell with simple sanitization
+  - For v1.0.0+ (Go): Move to pkg/logger with proper file locking for rotation
+  - Consider using filepath.Walk for purge to handle nested directories
+
+  Security Note: Sanitization is defense-in-depth; the primary security is not
+  logging sensitive data in the first place. All new log statements should be
+  reviewed for credential exposure.

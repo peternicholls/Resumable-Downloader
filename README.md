@@ -1,4 +1,4 @@
-# SafeDownload
+# SafeDownload Placeholder README
 
 A fully featured CLI download manager with terminal UI, supporting resumable downloads, SHA verification, parallel downloads, and persistent state management. Works with bash and zsh.
 
@@ -23,4 +23,3 @@ A fully featured CLI download manager with terminal UI, supporting resumable dow
 - 🔢 **Batch Operations**: Process multiple downloads with ease
 - ⏸️ **Stop/Resume**: Control individual downloads by ID
 
-tbc
