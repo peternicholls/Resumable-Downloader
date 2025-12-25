@@ -1,0 +1,531 @@
+metadata:
+  id: "F009"
+  name: "Error Handling & Exit Codes"
+  version: "0.2.0"
+  sprint: 2
+  status: "planned"
+  priority: "P2"
+  story_points: 5
+  created: "2025-12-25"
+  updated: "2025-12-25"
+
+description: |
+  Standardize error handling and exit codes across all operations, implement
+  exponential backoff retry logic, and ensure graceful shutdown with state
+  preservation to meet Constitution error handling requirements.
+
+  Current v0.1.0 has inconsistent error codes and basic retry logic. This feature
+  ensures reliable error handling, predictable exit codes for scripting, and
+  proper state management during failures and interruptions.
+
+constitution_compliance:
+  principles:
+    - id: "VII"
+      name: "State Persistence & Auto-Resume"
+      notes: "State saved on shutdown, even during errors"
+
+    - id: "III"
+      name: "Resumable Downloads"
+      notes: "Retry logic enables reliability for transient failures"
+
+  gates:
+    - gate: "Reliability"
+      requirement: "All error paths have defined exit codes"
+      test: "TestExitCodes_AllScenarios in tests/reliability/exit_codes_test.go"
+
+    - gate: "Reliability"
+      requirement: "Transient errors retry with exponential backoff (1s, 2s, 4s)"
+      test: "TestRetryBackoff in tests/reliability/retry_test.go"
+
+    - gate: "Reliability"
+      requirement: "SIGTERM/SIGINT save state before exit"
+      test: "TestGracefulShutdown in tests/reliability/shutdown_test.go"
+
+user_stories:
+  - id: "US009-1"
+    priority: "P1"
+    title: "Standardized exit codes for scripting"
+    description: |
+      As a user writing automation scripts,
+      I want consistent exit codes for different error types,
+      So that my scripts can handle errors appropriately.
+
+    acceptance_criteria:
+      - "GIVEN successful download, WHEN command completes, THEN exit code is 0"
+      - "GIVEN invalid arguments, WHEN command runs, THEN exit code is 1"
+      - "GIVEN network timeout, WHEN download fails, THEN exit code is 2"
+      - "GIVEN checksum mismatch, WHEN verification fails, THEN exit code is 3"
+      - "GIVEN permission denied, WHEN write fails, THEN exit code is 4"
+      - "GIVEN Ctrl+C pressed, WHEN user interrupts, THEN exit code is 130"
+
+    independent_test: |
+      1. Run: safedownload https://nonexistent.example.com/file.zip
+      2. Check exit code: echo $?
+      3. Verify: Exit code is 2 (network error)
+      4. Run: safedownload --invalid-flag
+      5. Check exit code: echo $?
+      6. Verify: Exit code is 1 (invalid arguments)
+
+    definition_of_done:
+      - "Exit codes standardized: 0 (success), 1 (args), 2 (network), 3 (verify), 4 (permission), 130 (interrupt)"
+      - "All error paths return correct exit code"
+      - "Unit tests verify exit codes"
+      - "E2E tests verify CLI exit codes"
+      - "README documents exit codes"
+
+  - id: "US009-2"
+    priority: "P1"
+    title: "Exponential backoff retry for transient errors"
+    description: |
+      As a user downloading over unreliable network,
+      I want automatic retries with increasing delays,
+      So that temporary network issues don't cause permanent failures.
+
+    acceptance_criteria:
+      - "GIVEN connection timeout, WHEN first retry, THEN wait 1 second before retry"
+      - "GIVEN second timeout, WHEN second retry, THEN wait 2 seconds before retry"
+      - "GIVEN third timeout, WHEN third retry, THEN wait 4 seconds before retry"
+      - "GIVEN 3 retries exhausted, WHEN all fail, THEN mark download as failed with exit 2"
+      - "GIVEN 404 error, WHEN occurs, THEN no retry (fatal error)"
+      - "GIVEN checksum mismatch, WHEN occurs, THEN no retry (fatal error)"
+
+    independent_test: |
+      1. Start mock server that times out first 2 requests
+      2. Run: safedownload http://localhost:8080/file.zip
+      3. Monitor logs: Should show retry attempts with increasing delays
+      4. Verify: Download succeeds on 3rd attempt
+      5. Verify: Log shows "Retry 1/3 (waiting 1s)", "Retry 2/3 (waiting 2s)"
+
+    definition_of_done:
+      - "Retry logic: 3 attempts with 1s, 2s, 4s delays"
+      - "Transient errors retry: timeout, DNS failure, connection reset"
+      - "Fatal errors no retry: 404, 403, checksum mismatch, invalid URL"
+      - "Unit tests verify backoff delays"
+      - "Integration test with mock flaky server"
+
+  - id: "US009-3"
+    priority: "P1"
+    title: "Graceful shutdown with state preservation"
+    description: |
+      As a user who needs to stop SafeDownload,
+      I want state saved when I press Ctrl+C or send SIGTERM,
+      So that I can resume downloads later without loss.
+
+    acceptance_criteria:
+      - "GIVEN download in progress, WHEN SIGINT (Ctrl+C), THEN state saved before exit"
+      - "GIVEN download in progress, WHEN SIGTERM, THEN state saved before exit"
+      - "GIVEN state saved on shutdown, WHEN restarted, THEN downloads resume from saved state"
+      - "GIVEN multiple SIGINT rapidly, WHEN received, THEN graceful shutdown (no corruption)"
+
+    independent_test: |
+      1. Start download: safedownload https://example.com/large.iso
+      2. Wait 5 seconds (partial download)
+      3. Press Ctrl+C
+      4. Check: ls ~/.safedownload/state.json (should exist and be valid JSON)
+      5. Restart: safedownload (TUI)
+      6. Verify: Download shows "Paused" status with progress preserved
+
+    definition_of_done:
+      - "SIGINT handler saves state before exit"
+      - "SIGTERM handler saves state before exit"
+      - "State includes partial download progress"
+      - "Corruption-resistant (atomic write or file locking)"
+      - "Unit tests for signal handling"
+      - "E2E test with Ctrl+C during download"
+
+functional_requirements:
+  - id: "FR009-1"
+    description: "System MUST return exit code 0 for successful operations"
+    priority: "MUST"
+    test: "Successful download, check $? == 0"
+
+  - id: "FR009-2"
+    description: "System MUST return exit code 1 for invalid arguments"
+    priority: "MUST"
+    test: "safedownload --invalid-flag, check $? == 1"
+
+  - id: "FR009-3"
+    description: "System MUST return exit code 2 for network errors"
+    priority: "MUST"
+    test: "Download from unreachable host, check $? == 2"
+
+  - id: "FR009-4"
+    description: "System MUST return exit code 3 for verification failures"
+    priority: "MUST"
+    test: "Download with wrong checksum, check $? == 3"
+
+  - id: "FR009-5"
+    description: "System MUST return exit code 4 for permission errors"
+    priority: "MUST"
+    test: "Download to read-only directory, check $? == 4"
+
+  - id: "FR009-6"
+    description: "System MUST return exit code 130 for user interrupts"
+    priority: "MUST"
+    test: "Download with Ctrl+C, check $? == 130"
+
+  - id: "FR009-7"
+    description: "System MUST retry transient errors 3 times with exponential backoff (1s, 2s, 4s)"
+    priority: "MUST"
+    test: "Flaky network test, verify 3 retries with correct delays"
+
+  - id: "FR009-8"
+    description: "System MUST NOT retry fatal errors (404, 403, checksum mismatch)"
+    priority: "MUST"
+    test: "404 error test, verify no retry"
+
+  - id: "FR009-9"
+    description: "System MUST save state on SIGINT/SIGTERM before exit"
+    priority: "MUST"
+    test: "Send SIGTERM, verify state.json updated"
+
+non_functional_requirements:
+  performance:
+    - "Retry delays MUST be accurate (±100ms tolerance)"
+    - "Signal handling MUST respond within 100ms"
+    - "State save on shutdown MUST complete in <500ms"
+
+  reliability:
+    - "State save MUST be atomic (no partial writes)"
+    - "Multiple rapid signals MUST NOT corrupt state"
+    - "Error messages MUST be clear and actionable"
+
+  usability:
+    - "Exit codes MUST be documented in --help and README"
+    - "Retry attempts MUST be logged with countdown"
+    - "Shutdown message MUST confirm state saved"
+
+  platform_support:
+    - "Tier 1: macOS, Ubuntu LTS, Debian 12+ (POSIX signals)"
+
+implementation:
+  packages:
+    - name: "pkg/errors"
+      purpose: "Error type definitions and exit code mapping"
+      new_files:
+        - "pkg/errors/errors.go (custom error types)"
+        - "pkg/errors/exit_codes.go (exit code constants)"
+        - "pkg/errors/errors_test.go"
+      modified_files: []
+
+    - name: "pkg/retry"
+      purpose: "Retry logic with exponential backoff"
+      new_files:
+        - "pkg/retry/retry.go (retry with backoff)"
+        - "pkg/retry/backoff.go (backoff calculation)"
+        - "pkg/retry/retry_test.go"
+      modified_files: []
+
+    - name: "pkg/downloader"
+      purpose: "Integrate retry logic"
+      new_files: []
+      modified_files:
+        - "pkg/downloader/downloader.go (use retry.Retry)"
+        - "pkg/downloader/errors.go (map errors to types)"
+
+    - name: "cmd/safedownload"
+      purpose: "Signal handling and exit code enforcement"
+      new_files: []
+      modified_files:
+        - "cmd/safedownload/main.go (signal handlers, exit codes)"
+        - "cmd/safedownload/signals.go (SIGINT/SIGTERM handlers)"
+
+  bash_changes:
+    - file: "safedownload"
+      changes:
+        - "Standardize exit codes (use exit 0, 1, 2, 3, 4, 130)"
+        - "Implement retry with sleep 1, 2, 4"
+        - "Add trap for INT and TERM signals"
+        - "Save state in trap handler before exit"
+
+  cli:
+    new_flags:
+      - flag: "--max-retries"
+        type: "integer"
+        default: "3"
+        description: "Maximum retry attempts for transient errors (0 = no retry)"
+
+    new_commands: []
+
+  schema_changes:
+    state_json:
+      version: "1.0.0"
+      changes: []
+
+    config_json:
+      version: "1.0.0"
+      changes:
+        - type: "add"
+          field: "downloads.max_retries"
+          data_type: "integer"
+          optional: true
+          migration: "Defaults to 3 if missing"
+
+  storage:
+    - "State persisted on shutdown in state.json"
+
+testing:
+  unit_tests:
+    - file: "pkg/errors/errors_test.go"
+      functions:
+        - "TestErrorTypes"
+        - "TestExitCodeMapping"
+      coverage_target: "100%"
+
+    - file: "pkg/retry/retry_test.go"
+      functions:
+        - "TestRetry_Success"
+        - "TestRetry_ExhaustRetries"
+        - "TestBackoff_ExponentialDelays"
+      coverage_target: "95%"
+
+    - file: "pkg/downloader/errors_test.go"
+      functions:
+        - "TestMapHTTPError_404"
+        - "TestMapHTTPError_Timeout"
+        - "TestMapNetworkError"
+      coverage_target: "90%"
+
+  integration_tests:
+    - file: "tests/integration/retry_test.go"
+      scenarios:
+        - "Flaky network: succeeds on 2nd retry"
+        - "Persistent failure: exhausts retries"
+      coverage_target: "Retry logic end-to-end"
+
+    - file: "tests/integration/shutdown_test.go"
+      scenarios:
+        - "SIGINT during download saves state"
+        - "SIGTERM during download saves state"
+        - "Restart after interrupt resumes download"
+      coverage_target: "Graceful shutdown lifecycle"
+
+  e2e_tests:
+    - file: "tests/e2e/exit_codes_test.bats"
+      scenarios:
+        - "CLI: Exit 0 on success"
+        - "CLI: Exit 1 on invalid args"
+        - "CLI: Exit 2 on network error"
+        - "CLI: Exit 3 on checksum mismatch"
+        - "CLI: Exit 4 on permission denied"
+        - "CLI: Exit 130 on Ctrl+C"
+
+  manual_tests:
+    - "Test Ctrl+C during download, verify state saved"
+    - "Test rapid Ctrl+C (spam), verify no corruption"
+
+dependencies:
+  external:
+    - name: "None (stdlib only)"
+      version: "N/A"
+      license: "N/A"
+      justification: "POSIX signals, time.Sleep for backoff"
+      optional: false
+
+  internal: []
+
+  platform:
+    - "POSIX signals: SIGINT, SIGTERM"
+    - "Bash trap for signal handling (v0.x)"
+    - "Go signal.Notify (v1.0.0+)"
+
+documentation:
+  readme_sections:
+    - section: "Error Handling"
+      changes: |
+        Add new "Error Handling & Exit Codes" section explaining:
+        - Exit codes: 0 (success), 1 (args), 2 (network), 3 (verify), 4 (permission), 130 (interrupt)
+        - Retry policy: 3 attempts with 1s, 2s, 4s delays
+        - Transient vs. fatal errors
+        - Graceful shutdown (Ctrl+C saves state)
+
+    - section: "Configuration"
+      changes: |
+        Document config.json retry option:
+        - downloads.max_retries (default: 3, 0 = no retry)
+
+  new_docs: []
+
+  changelog:
+    type: "Added"
+    entry: |
+      ### Reliability (Principles III, VII: Resumable Downloads, State Persistence)
+      - Standardized exit codes: 0 (success), 1 (args), 2 (network), 3 (verify), 4 (permission), 130 (interrupt)
+      - Exponential backoff retry: 3 attempts with 1s, 2s, 4s delays for transient errors
+      - Graceful shutdown: SIGINT/SIGTERM save state before exit
+      - Fatal error detection: 404, 403, checksum mismatch don't retry
+      - Configuration: --max-retries flag and downloads.max_retries config
+
+edge_cases:
+  - case: "Retry during Ctrl+C"
+    expected_behavior: "Immediate shutdown, skip remaining retries"
+    test: "TestRetry_InterruptedBySignal"
+
+  - case: "State save fails (disk full)"
+    expected_behavior: "Log error, exit anyway (don't hang)"
+    test: "TestShutdown_StateSaveFailure"
+
+  - case: "Ambiguous error (could be transient or fatal)"
+    expected_behavior: "Classify conservatively (retry if unsure)"
+    test: "TestErrorClassification_Ambiguous"
+
+  - case: "Multiple downloads, one fails fatally"
+    expected_behavior: "Other downloads continue (parallel independence)"
+    test: "TestParallelDownloads_OneFatalError"
+
+error_handling:
+  - error: "Invalid arguments"
+    exit_code: 1
+    retry: false
+    user_action: "Check --help for valid arguments"
+
+  - error: "Network timeout"
+    exit_code: 2
+    retry: true
+    retry_policy: "3 attempts with exponential backoff (1s, 2s, 4s)"
+
+  - error: "404 Not Found"
+    exit_code: 2
+    retry: false
+    user_action: "Check URL is correct"
+
+  - error: "Checksum mismatch"
+    exit_code: 3
+    retry: false
+    user_action: "Verify checksum or re-download from different source"
+
+  - error: "Permission denied"
+    exit_code: 4
+    retry: false
+    user_action: "Check write permissions on output directory"
+
+  - error: "User interrupt (Ctrl+C)"
+    exit_code: 130
+    retry: false
+    user_action: "Resume downloads on next launch"
+
+risks:
+  - id: "RISK009-1"
+    title: "Race condition in signal handling"
+    impact: "high"
+    probability: "low"
+    mitigation: |
+      - Use atomic state operations
+      - Test with rapid signal delivery
+      - File locking for state.json writes
+
+  - id: "RISK009-2"
+    title: "Retry delays too aggressive (waste time)"
+    impact: "medium"
+    probability: "medium"
+    mitigation: |
+      - Tune delays based on testing (1s, 2s, 4s is reasonable)
+      - Make configurable via --max-retries
+      - Document retry behavior clearly
+
+  - id: "RISK009-3"
+    title: "Exit code conflicts with shell conventions"
+    impact: "low"
+    probability: "low"
+    mitigation: |
+      - Use standard POSIX exit codes
+      - Document in README and --help
+      - 130 is standard for SIGINT (128 + signal number)
+
+alternatives:
+  - approach: "Use exponential backoff with jitter"
+    pros:
+      - "Prevents thundering herd in distributed scenarios"
+    cons:
+      - "More complex, unpredictable delays"
+      - "Overkill for single-user tool"
+    reason_rejected: "Simple backoff sufficient for SafeDownload use case"
+
+  - approach: "Infinite retries until user cancels"
+    pros:
+      - "Maximizes chances of success"
+    cons:
+      - "Can hang indefinitely on persistent errors"
+      - "User frustration if stuck retrying"
+    reason_rejected: "3 retries balances reliability and user control"
+
+success_criteria:
+  quantitative:
+    - "100% of error paths return correct exit code"
+    - "Retry succeeds within 3 attempts for transient errors"
+    - "State saved on 100% of shutdown signals"
+    - "Zero state corruption from signal handling"
+
+  qualitative:
+    - "Users can reliably script SafeDownload (exit codes predictable)"
+    - "Network issues rarely cause permanent failures (retries work)"
+    - "Ctrl+C feels responsive and safe (state preserved)"
+
+sprint_tasks:
+  setup:
+    - task: "T009-001"
+      description: "Define error types and exit code constants"
+      assignee: "@peternicholls"
+      estimate: "1 SP"
+
+  implementation:
+    - task: "T009-002"
+      description: "Implement retry logic with exponential backoff"
+      assignee: "@peternicholls"
+      estimate: "2 SP"
+
+    - task: "T009-003"
+      description: "Implement signal handlers (SIGINT, SIGTERM)"
+      assignee: "@peternicholls"
+      estimate: "1 SP"
+
+    - task: "T009-004"
+      description: "Integrate exit codes across all error paths"
+      assignee: "@peternicholls"
+      estimate: "1 SP"
+
+  testing:
+    - task: "T009-005"
+      description: "Write unit tests for retry and errors"
+      assignee: "@peternicholls"
+      estimate: "1 SP"
+
+    - task: "T009-006"
+      description: "Write integration tests for shutdown"
+      assignee: "@peternicholls"
+      estimate: "1 SP"
+
+    - task: "T009-007"
+      description: "Write E2E tests for all exit codes"
+      assignee: "@peternicholls"
+      estimate: "1 SP"
+
+  documentation:
+    - task: "T009-008"
+      description: "Update README with Error Handling section"
+      assignee: "@peternicholls"
+      estimate: "1 SP"
+
+notes: |
+  Constitution Compliance: This feature implements error handling requirements
+  from the constitution, ensuring reliable operation and graceful degradation.
+
+  Related Constitution sections:
+  - Error Handling & Exit Codes (Technical Constraints)
+  - Principle III: Resumable Downloads (retry logic)
+  - Principle VII: State Persistence (shutdown with state save)
+
+  Implementation Notes:
+  - For v0.2.0 (Bash): Use trap for signals, simple retry loop with sleep
+  - For v1.0.0+ (Go): Use signal.Notify, context cancellation for clean shutdown
+  - Exit code 130 is standard: 128 + 2 (SIGINT signal number)
+
+  Testing Strategy:
+  - Unit tests verify retry delays and error classification
+  - Integration tests verify signal handling and state persistence
+  - E2E tests verify actual CLI exit codes in shell
+
+  Future Enhancements:
+  - Configurable retry strategy (linear, exponential, custom delays)
+  - Retry with jitter for distributed scenarios
+  - Detailed error reporting (structured JSON errors)
