@@ -1238,20 +1238,17 @@ process_tui_command() {
     esac
 }
 
-# TUI main loop
-run_tui() {
-    init_tui
-    draw_tui_layout
+# Simple TUI - minimal, clean, no flashing
+run_simple_tui() {
+    echo ""
+    echo -e "${BOLD}${CYAN}SafeDownload v${VERSION}${NC} - Download Manager"
+    echo -e "${GRAY}Type 'help' for commands or paste a URL to download${NC}"
+    echo ""
     
-    add_output "${GREEN}Welcome to SafeDownload TUI!${NC}"
-    add_output "Type a URL to download or /help for commands"
-    add_output ""
-    
-    # Auto-resume interrupted downloads
+    # Auto-resume interrupted downloads silently
     local interrupted
     interrupted=$(get_downloads_by_state "$STATE_DOWNLOADING")
     if [[ -n "$interrupted" ]]; then
-        add_output "Found interrupted downloads, resuming..."
         echo "$interrupted" | while IFS= read -r dl; do
             [[ -z "$dl" ]] && continue
             local id
@@ -1261,38 +1258,150 @@ run_tui() {
         process_queue &
     fi
     
-    local input=""
-    
-    while $TUI_RUNNING; do
-        # Update displays
-        update_command_output
-        update_queue_display
+    while true; do
+        # Show downloads without redrawing constantly
+        local downloads
+        downloads=$(list_downloads)
         
-        # Position cursor in input box
-        tput cup $((TERM_LINES - 2)) 4
-        echo -n "$input"
-        printf "%*s" $((LEFT_COL_WIDTH - 5 - ${#input})) ""
-        tput cup $((TERM_LINES - 2)) $((4 + ${#input}))
-        
-        # Read input with timeout
-        tput cnorm  # Show cursor
-        if read -t "$TUI_REFRESH_RATE" -r -n 1 char; then
-            case "$char" in
-                $'\177'|$'\b')  # Backspace
-                    [[ ${#input} -gt 0 ]] && input="${input:0:-1}"
-                    ;;
-                "")  # Enter
-                    if [[ -n "$input" ]]; then
-                        process_tui_command "$input"
-                        input=""
-                    fi
-                    ;;
-                *)
-                    input+="$char"
-                    ;;
-            esac
+        if [[ -n "$downloads" ]]; then
+            echo ""
+            echo -e "${BOLD}Downloads:${NC}"
+            echo "$downloads" | while IFS= read -r dl; do
+                [[ -z "$dl" ]] && continue
+                
+                local id state output progress
+                id=$(echo "$dl" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])" 2>/dev/null)
+                state=$(echo "$dl" | python3 -c "import json,sys; print(json.load(sys.stdin)['state'])" 2>/dev/null)
+                output=$(echo "$dl" | python3 -c "import json,sys; print(json.load(sys.stdin)['output'])" 2>/dev/null)
+                progress=$(echo "$dl" | python3 -c "import json,sys; print(json.load(sys.stdin).get('progress', 0))" 2>/dev/null)
+                
+                # State icon
+                local state_icon
+                case "$state" in
+                    "$STATE_QUEUED")     state_icon="⏳" ;;
+                    "$STATE_DOWNLOADING") state_icon="⬇️ " ;;
+                    "$STATE_PAUSED")     state_icon="⏸️ " ;;
+                    "$STATE_COMPLETED")  state_icon="✅" ;;
+                    "$STATE_FAILED")     state_icon="❌" ;;
+                    *)                   state_icon="❓" ;;
+                esac
+                
+                # Truncate filename
+                local display_name="$output"
+                if [[ ${#display_name} -gt 60 ]]; then
+                    display_name="${display_name:0:57}..."
+                fi
+                
+                printf "  %s #%-2s %s %3s%%\n" "$state_icon" "$id" "$display_name" "$progress"
+            done
+            echo ""
         fi
-        tput civis  # Hide cursor
+        
+        echo -ne "${BOLD}${GREEN}>${NC} "
+        read -r input
+        
+        # Skip empty input
+        [[ -z "$input" ]] && continue
+        
+        # Parse command
+        local cmd="${input%% *}"
+        local args="${input#* }"
+        [[ "$args" == "$cmd" ]] && args=""
+        
+        case "$cmd" in
+            quit|q|exit)
+                echo -e "${CYAN}Goodbye!${NC}"
+                exit 0
+                ;;
+            help|h|\?)
+                echo ""
+                echo -e "${BOLD}Commands:${NC}"
+                echo "  URL                Add download URL"
+                echo "  stop <ID>          Stop download"
+                echo "  resume <ID>        Resume download"
+                echo "  clear [ID|all]     Clear downloads"
+                echo "  list               List downloads"
+                echo "  status             Show status"
+                echo "  parallel <N>       Max parallel (1-10)"
+                echo "  manifest <FILE>    Load manifest"
+                echo "  help               Show this help"
+                echo "  quit               Exit"
+                echo ""
+                ;;
+            stop)
+                if [[ "$args" =~ ^[0-9]+$ ]]; then
+                    stop_download "$args" 2>/dev/null
+                    echo -e "${GREEN}✓ Stopped download #$args${NC}"
+                else
+                    echo -e "${RED}✗ Usage: stop <ID>${NC}"
+                fi
+                ;;
+            resume)
+                if [[ "$args" =~ ^[0-9]+$ ]]; then
+                    resume_download "$args" 2>/dev/null
+                    echo -e "${GREEN}✓ Resumed download #$args${NC}"
+                else
+                    echo -e "${RED}✗ Usage: resume <ID>${NC}"
+                fi
+                ;;
+            clear)
+                if [[ "$args" == "all" ]]; then
+                    clear_all_except_inprogress
+                    echo -e "${GREEN}✓ Cleared all except in-progress${NC}"
+                elif [[ -n "$args" && "$args" =~ ^[0-9]+$ ]]; then
+                    remove_download "$args"
+                    echo -e "${GREEN}✓ Removed download #$args${NC}"
+                else
+                    clear_completed
+                    echo -e "${GREEN}✓ Cleared completed${NC}"
+                fi
+                ;;
+            list|ls)
+                # List already shown above
+                :
+                ;;
+            status|s)
+                echo ""
+                echo -e "${BOLD}Status:${NC}"
+                local count
+                count=$(count_active_downloads)
+                echo "  Active: $count / $MAX_PARALLEL_DOWNLOADS"
+                echo "  State Dir: $STATE_DIR"
+                echo ""
+                ;;
+            parallel)
+                if [[ "$args" =~ ^[0-9]+$ ]] && [[ "$args" -ge 1 ]] && [[ "$args" -le 10 ]]; then
+                    MAX_PARALLEL_DOWNLOADS=$args
+                    echo -e "${GREEN}✓ Max parallel set to $args${NC}"
+                else
+                    echo -e "${RED}✗ Usage: parallel <1-10>${NC}"
+                fi
+                ;;
+            manifest)
+                if [[ -f "$args" ]]; then
+                    parse_manifest "$args"
+                    echo -e "${GREEN}✓ Manifest loaded, starting downloads${NC}"
+                    ( process_queue ) &
+                else
+                    echo -e "${RED}✗ File not found: $args${NC}"
+                fi
+                ;;
+            *)
+                # Check if it's a URL
+                if [[ "$input" =~ ^https?:// ]]; then
+                    local filename
+                    filename=$(get_filename_from_url "$input")
+                    local id
+                    id=$(add_download "$input" "$filename" "" "" 2>/dev/null)
+                    if [[ $? -eq 0 ]]; then
+                        echo -e "${GREEN}✓ Added #$id: $filename${NC}"
+                        start_background_download "$id"
+                    fi
+                else
+                    echo -e "${RED}✗ Unknown command: $cmd${NC}"
+                fi
+                ;;
+        esac
     done
 }
 
@@ -1302,47 +1411,45 @@ run_tui() {
 
 # Display usage
 usage() {
-    cat << EOF
-${BOLD}SafeDownload v${VERSION}${NC} - A fully featured CLI download manager
-
-${BOLD}USAGE:${NC}
-    safedownload [OPTIONS] [URL] [OUTPUT]
-    safedownload -g                        Launch terminal UI mode
-
-${BOLD}OPTIONS:${NC}
-    -h, --help              Show this help message
-    -v, --version           Show version
-    -g, --gui               Launch terminal UI mode
-    -s, --status            Show download status
-    -l, --list              List all downloads
-    -m, --manifest FILE     Load URLs from manifest file
-    -p, --parallel N        Set max parallel downloads (default: 3)
-    --sha256 HASH           Verify download with SHA256
-    --sha512 HASH           Verify download with SHA512
-    --sha1 HASH             Verify download with SHA1
-    --md5 HASH              Verify download with MD5
-    --stop ID               Stop download by ID
-    --resume ID             Resume download by ID
-    --clear [ID|all]        Clear downloads
-    --bg                    Run download in background
-
-${BOLD}EXAMPLES:${NC}
-    safedownload https://example.com/file.zip
-    safedownload https://example.com/file.zip myfile.zip
-    safedownload https://example.com/file.zip --sha256 abc123...
-    safedownload -m urls.txt -p 5
-    safedownload -g
-
-${BOLD}MANIFEST FILE FORMAT:${NC}
-    # Comment lines start with #
-    https://example.com/file1.zip
-    https://example.com/file2.zip output.zip
-    https://example.com/file3.zip file3.zip sha256:abc123...
-
-${BOLD}STATE DIRECTORY:${NC}
-    ~/.safedownload/
-
-EOF
+    echo -e "${BOLD}SafeDownload v${VERSION}${NC} - A fully featured CLI download manager"
+    echo ""
+    echo -e "${BOLD}USAGE:${NC}"
+    echo "    safedownload [OPTIONS] [URL] [OUTPUT]"
+    echo "    safedownload -g                        Launch terminal UI mode"
+    echo ""
+    echo -e "${BOLD}OPTIONS:${NC}"
+    echo "    -h, --help              Show this help message"
+    echo "    -v, --version           Show version"
+    echo "    -g, --gui               Launch terminal UI mode"
+    echo "    -s, --status            Show download status"
+    echo "    -l, --list              List all downloads"
+    echo "    -m, --manifest FILE     Load URLs from manifest file"
+    echo "    -p, --parallel N        Set max parallel downloads (default: 3)"
+    echo "    --sha256 HASH           Verify download with SHA256"
+    echo "    --sha512 HASH           Verify download with SHA512"
+    echo "    --sha1 HASH             Verify download with SHA1"
+    echo "    --md5 HASH              Verify download with MD5"
+    echo "    --stop ID               Stop download by ID"
+    echo "    --resume ID             Resume download by ID"
+    echo "    --clear [ID|all]        Clear downloads"
+    echo "    --bg                    Run download in background"
+    echo ""
+    echo -e "${BOLD}EXAMPLES:${NC}"
+    echo "    safedownload https://example.com/file.zip"
+    echo "    safedownload https://example.com/file.zip myfile.zip"
+    echo "    safedownload https://example.com/file.zip --sha256 abc123..."
+    echo "    safedownload -m urls.txt -p 5"
+    echo "    safedownload -g"
+    echo ""
+    echo -e "${BOLD}MANIFEST FILE FORMAT:${NC}"
+    echo "    # Comment lines start with #"
+    echo "    https://example.com/file1.zip"
+    echo "    https://example.com/file2.zip output.zip"
+    echo "    https://example.com/file3.zip file3.zip sha256:abc123..."
+    echo ""
+    echo -e "${BOLD}STATE DIRECTORY:${NC}"
+    echo "    ~/.safedownload/"
+    echo ""
     exit 0
 }
 
@@ -1516,7 +1623,19 @@ main() {
     
     # Handle GUI mode
     if $gui_mode; then
-        run_tui
+        if command -v gum &> /dev/null; then
+            # Use enhanced Gum TUI (simpler version)
+            SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+            if [[ -f "${SCRIPT_DIR}/safedownload-gum-simple" ]]; then
+                source "${SCRIPT_DIR}/safedownload-gum-simple"
+                run_gum_tui_simple
+            else
+                run_simple_tui
+            fi
+        else
+            # Fallback to simple TUI
+            run_simple_tui
+        fi
         exit 0
     fi
     

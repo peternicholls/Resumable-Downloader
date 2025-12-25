@@ -1,0 +1,518 @@
+#!/usr/bin/env bash
+#
+# SafeDownload with Gum TUI
+# Modern terminal UI implementation using Charm Gum
+#
+# Requires: gum (brew install gum)
+#
+
+# Source the original script functions (everything except main and TUI)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/safedownload" 2>/dev/null || {
+    # If sourcing fails, we need the functions inline
+    # For now, just exit with error
+    echo "Error: Cannot source safedownload script"
+    exit 1
+}
+
+# Override the TUI functions to use Gum
+
+# Check if gum is installed
+check_gum() {
+    if ! command -v gum &> /dev/null; then
+        cat << EOF
+${RED}Error: Gum is not installed.${NC}
+
+Gum is required for the improved TUI experience.
+
+Installation:
+  macOS:   brew install gum
+  Linux:   sudo snap install gum
+  Manual:  https://github.com/charmbracelet/gum/releases
+
+Alternatively, use the standard CLI mode:
+  safedownload --status
+  safedownload --list
+
+EOF
+        exit 1
+    fi
+}
+
+# Format download entry for display
+format_download_entry() {
+    local dl="$1"
+    
+    local id state output progress downloaded size
+    id=$(echo "$dl" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
+    state=$(echo "$dl" | python3 -c "import json,sys; print(json.load(sys.stdin)['state'])")
+    output=$(echo "$dl" | python3 -c "import json,sys; print(json.load(sys.stdin)['output'])")
+    progress=$(echo "$dl" | python3 -c "import json,sys; print(json.load(sys.stdin).get('progress', 0))")
+    downloaded=$(echo "$dl" | python3 -c "import json,sys; print(json.load(sys.stdin).get('downloaded', 0))")
+    size=$(echo "$dl" | python3 -c "import json,sys; print(json.load(sys.stdin).get('size', 0))")
+    
+    # State emoji
+    local state_icon
+    case "$state" in
+        "$STATE_QUEUED")     state_icon="⏳" ;;
+        "$STATE_DOWNLOADING") state_icon="⬇️ " ;;
+        "$STATE_PAUSED")     state_icon="⏸️ " ;;
+        "$STATE_COMPLETED")  state_icon="✅" ;;
+        "$STATE_FAILED")     state_icon="❌" ;;
+        "$STATE_VERIFYING")  state_icon="🔍" ;;
+        *)                   state_icon="❓" ;;
+    esac
+    
+    # Format sizes
+    local size_str=""
+    if [[ $size -gt 0 ]]; then
+        size_str="$(format_bytes "$downloaded")/$(format_bytes "$size")"
+    fi
+    
+    # Truncate filename if too long
+    local display_name="$output"
+    if [[ ${#display_name} -gt 40 ]]; then
+        display_name="${display_name:0:37}..."
+    fi
+    
+    printf "#%-3s %s %-12s %-40s %3s%% %s" "$id" "$state_icon" "$state" "$display_name" "$progress" "$size_str"
+}
+
+# Show download queue using gum table
+show_queue_gum() {
+    local downloads
+    downloads=$(list_downloads)
+    
+    if [[ -z "$downloads" ]]; then
+        gum style \
+            --foreground 240 \
+            --italic \
+            "No downloads in queue"
+        return
+    fi
+    
+    # Build table data
+    local table_data="ID,State,File,Progress,Size"
+    
+    while IFS= read -r dl; do
+        [[ -z "$dl" ]] && continue
+        
+        local id state output progress downloaded size
+        id=$(echo "$dl" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
+        state=$(echo "$dl" | python3 -c "import json,sys; print(json.load(sys.stdin)['state'])")
+        output=$(echo "$dl" | python3 -c "import json,sys; print(json.load(sys.stdin)['output'])")
+        progress=$(echo "$dl" | python3 -c "import json,sys; print(json.load(sys.stdin).get('progress', 0))")
+        downloaded=$(echo "$dl" | python3 -c "import json,sys; print(json.load(sys.stdin).get('downloaded', 0))")
+        size=$(echo "$dl" | python3 -c "import json,sys; print(json.load(sys.stdin).get('size', 0))")
+        
+        # State icon
+        local state_icon
+        case "$state" in
+            "$STATE_QUEUED")     state_icon="⏳ Queued" ;;
+            "$STATE_DOWNLOADING") state_icon="⬇️  Downloading" ;;
+            "$STATE_PAUSED")     state_icon="⏸️  Paused" ;;
+            "$STATE_COMPLETED")  state_icon="✅ Done" ;;
+            "$STATE_FAILED")     state_icon="❌ Failed" ;;
+            "$STATE_VERIFYING")  state_icon="🔍 Verifying" ;;
+            *)                   state_icon="$state" ;;
+        esac
+        
+        # Truncate filename
+        local display_name="$output"
+        if [[ ${#display_name} -gt 50 ]]; then
+            display_name="${display_name:0:47}..."
+        fi
+        
+        # Size display
+        local size_str="–"
+        if [[ $size -gt 0 ]]; then
+            size_str="$(format_bytes "$downloaded")/$(format_bytes "$size")"
+        fi
+        
+        table_data+=$'\n'"#$id,$state_icon,$display_name,${progress}%,$size_str"
+    done <<< "$downloads"
+    
+    echo "$table_data" | gum table --border rounded --height 20
+}
+
+# Process command with gum feedback
+process_command_gum() {
+    local input="$1"
+    
+    # Empty input
+    if [[ -z "$input" ]]; then
+        return 0
+    fi
+    
+    # Check if it's a URL
+    if [[ "$input" =~ ^https?:// ]]; then
+        local filename
+        filename=$(get_filename_from_url "$input")
+        
+        gum spin --spinner dot --title "Adding download..." -- sleep 0.5
+        
+        local id
+        id=$(add_download "$input" "$filename" "" "")
+        
+        gum style \
+            --foreground 212 \
+            "✓ Added download #$id: $filename"
+        
+        start_background_download "$id"
+        
+        gum style \
+            --foreground 86 \
+            "▶ Started download #$id"
+        
+        return 0
+    fi
+    
+    # Parse commands
+    local cmd="${input%% *}"
+    local args="${input#* }"
+    [[ "$args" == "$cmd" ]] && args=""
+    
+    case "$cmd" in
+        help|h|\?)
+            gum style \
+                --border rounded \
+                --border-foreground 212 \
+                --padding "1 2" \
+                --margin "1 0" \
+                "$(cat << 'EOF'
+SafeDownload Commands
+
+URL                 Add URL to download queue
+stop <ID>          Stop download by ID
+resume <ID>        Resume download by ID
+clear [ID|all]     Clear downloads
+list               List all downloads
+status             Show detailed status
+parallel <N>       Set max parallel downloads (1-10)
+manifest <FILE>    Load URLs from manifest file
+refresh            Refresh display
+help               Show this help
+quit               Exit SafeDownload
+EOF
+)"
+            ;;
+        
+        stop)
+            if [[ -z "$args" || ! "$args" =~ ^[0-9]+$ ]]; then
+                gum style --foreground 196 "❌ Usage: stop <ID>"
+                return 1
+            fi
+            
+            gum spin --spinner dot --title "Stopping download #$args..." -- \
+                stop_download "$args"
+            
+            gum style --foreground 86 "✓ Stopped download #$args"
+            ;;
+        
+        resume)
+            if [[ -z "$args" || ! "$args" =~ ^[0-9]+$ ]]; then
+                gum style --foreground 196 "❌ Usage: resume <ID>"
+                return 1
+            fi
+            
+            gum spin --spinner dot --title "Resuming download #$args..." -- \
+                resume_download "$args" > /dev/null 2>&1
+            
+            gum style --foreground 86 "✓ Resumed download #$args"
+            ;;
+        
+        clear)
+            if [[ "$args" == "all" ]]; then
+                if gum confirm "Clear all stopped and completed downloads?"; then
+                    clear_all_except_inprogress
+                    gum style --foreground 86 "✓ Cleared all stopped/completed downloads"
+                fi
+            elif [[ -n "$args" && "$args" =~ ^[0-9]+$ ]]; then
+                if gum confirm "Remove download #$args?"; then
+                    remove_download "$args"
+                    gum style --foreground 86 "✓ Removed download #$args"
+                fi
+            else
+                clear_completed
+                gum style --foreground 86 "✓ Cleared completed downloads"
+            fi
+            ;;
+        
+        list|ls)
+            show_queue_gum
+            ;;
+        
+        status|s)
+            gum style \
+                --border double \
+                --border-foreground 212 \
+                --padding "1 2" \
+                --margin "1 0" \
+                "$(cat << EOF
+SafeDownload Status
+
+Active Downloads:    $(count_active_downloads)
+Max Parallel:        $MAX_PARALLEL_DOWNLOADS
+State Directory:     $STATE_DIR
+EOF
+)"
+            echo ""
+            show_queue_gum
+            ;;
+        
+        parallel)
+            if [[ -z "$args" || ! "$args" =~ ^[0-9]+$ ]] || [[ "$args" -lt 1 || "$args" -gt 10 ]]; then
+                gum style --foreground 196 "❌ Usage: parallel <1-10>"
+                return 1
+            fi
+            
+            MAX_PARALLEL_DOWNLOADS=$args
+            gum style --foreground 86 "✓ Max parallel downloads set to $args"
+            ;;
+        
+        manifest)
+            if [[ -z "$args" || ! -f "$args" ]]; then
+                gum style --foreground 196 "❌ File not found: $args"
+                return 1
+            fi
+            
+            gum spin --spinner dot --title "Loading manifest $args..." -- \
+                parse_manifest "$args"
+            
+            gum style --foreground 86 "✓ Manifest loaded, starting downloads..."
+            
+            # Start queue processor in background
+            ( process_queue ) &
+            ;;
+        
+        refresh)
+            # Just return - will trigger redraw
+            ;;
+        
+        quit|q|exit)
+            gum style --foreground 212 "👋 Goodbye!"
+            exit 0
+            ;;
+        
+        "")
+            ;;
+        
+        *)
+            gum style --foreground 196 "❌ Unknown command: $cmd (type 'help' for commands)"
+            ;;
+    esac
+}
+
+# Main TUI loop using Gum
+run_gum_tui() {
+    check_gum
+    
+    # Initialize
+    init_state_dir
+    
+    # Show header
+    clear
+    gum style \
+        --border double \
+        --border-foreground 212 \
+        --align center \
+        --width 60 \
+        --margin "1 2" \
+        --padding "1 4" \
+        "SafeDownload v${VERSION}" \
+        "Modern Download Manager with Gum TUI"
+    
+    echo ""
+    gum style --foreground 240 "Type 'help' for commands, 'quit' to exit"
+    echo ""
+    
+    # Auto-resume interrupted downloads
+    local interrupted
+    interrupted=$(get_downloads_by_state "$STATE_DOWNLOADING")
+    if [[ -n "$interrupted" ]]; then
+        gum style --foreground 214 "⚠ Found interrupted downloads, resuming..."
+        
+        echo "$interrupted" | while IFS= read -r dl; do
+            [[ -z "$dl" ]] && continue
+            local id
+            id=$(echo "$dl" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
+            update_download_state "$id" "$STATE_QUEUED"
+        done
+        
+        ( process_queue ) &
+        echo ""
+    fi
+    
+    # Show initial queue
+    show_queue_gum
+    echo ""
+    
+    # Main loop
+    while true; do
+        # Get input with gum
+        local input
+        input=$(gum input --placeholder "Enter command or URL..." --prompt "> " --width 80) || {
+            # Ctrl+C or cancelled
+            if gum confirm "Are you sure you want to quit?"; then
+                break
+            else
+                continue
+            fi
+        }
+        
+        # Process command
+        echo ""
+        process_command_gum "$input"
+        echo ""
+        
+        # Update queue display after command
+        show_queue_gum
+        echo ""
+    done
+    
+    # Cleanup
+    gum style --foreground 212 "👋 SafeDownload closed"
+}
+
+# Enhanced menu mode using Gum
+run_gum_menu() {
+    check_gum
+    init_state_dir
+    
+    while true; do
+        clear
+        gum style \
+            --border double \
+            --border-foreground 212 \
+            --align center \
+            --width 60 \
+            --margin "1 2" \
+            --padding "1 4" \
+            "SafeDownload v${VERSION}"
+        
+        echo ""
+        show_queue_gum
+        echo ""
+        
+        local choice
+        choice=$(gum choose \
+            "Add URL" \
+            "Show Status" \
+            "Stop Download" \
+            "Resume Download" \
+            "Clear Downloads" \
+            "Load Manifest" \
+            "Settings" \
+            "Quit" \
+            --height 10 \
+            --cursor "> ")
+        
+        case "$choice" in
+            "Add URL")
+                local url
+                url=$(gum input --placeholder "Enter download URL..." --width 80)
+                if [[ -n "$url" ]]; then
+                    process_command_gum "$url"
+                    gum input --placeholder "Press Enter to continue..."
+                fi
+                ;;
+            
+            "Show Status")
+                process_command_gum "status"
+                echo ""
+                gum input --placeholder "Press Enter to continue..."
+                ;;
+            
+            "Stop Download")
+                local id
+                id=$(gum input --placeholder "Enter download ID to stop...")
+                if [[ -n "$id" ]]; then
+                    process_command_gum "stop $id"
+                    gum input --placeholder "Press Enter to continue..."
+                fi
+                ;;
+            
+            "Resume Download")
+                local id
+                id=$(gum input --placeholder "Enter download ID to resume...")
+                if [[ -n "$id" ]]; then
+                    process_command_gum "resume $id"
+                    gum input --placeholder "Press Enter to continue..."
+                fi
+                ;;
+            
+            "Clear Downloads")
+                local clear_choice
+                clear_choice=$(gum choose "Clear completed" "Clear by ID" "Clear all" "Cancel" --height 6)
+                case "$clear_choice" in
+                    "Clear completed")
+                        process_command_gum "clear"
+                        ;;
+                    "Clear by ID")
+                        local id
+                        id=$(gum input --placeholder "Enter download ID...")
+                        [[ -n "$id" ]] && process_command_gum "clear $id"
+                        ;;
+                    "Clear all")
+                        process_command_gum "clear all"
+                        ;;
+                esac
+                gum input --placeholder "Press Enter to continue..."
+                ;;
+            
+            "Load Manifest")
+                local file
+                file=$(gum input --placeholder "Enter manifest file path...")
+                if [[ -n "$file" ]]; then
+                    process_command_gum "manifest $file"
+                    gum input --placeholder "Press Enter to continue..."
+                fi
+                ;;
+            
+            "Settings")
+                local parallel
+                parallel=$(gum input \
+                    --placeholder "Max parallel downloads (1-10)" \
+                    --value "$MAX_PARALLEL_DOWNLOADS")
+                if [[ -n "$parallel" ]]; then
+                    process_command_gum "parallel $parallel"
+                    gum input --placeholder "Press Enter to continue..."
+                fi
+                ;;
+            
+            "Quit")
+                if gum confirm "Are you sure you want to quit?"; then
+                    break
+                fi
+                ;;
+        esac
+    done
+    
+    gum style --foreground 212 "👋 Goodbye!"
+}
+
+# Main entry point
+main_gum() {
+    local mode="${1:-interactive}"
+    
+    case "$mode" in
+        interactive|i)
+            run_gum_tui
+            ;;
+        menu|m)
+            run_gum_menu
+            ;;
+        *)
+            echo "Usage: $0 [interactive|menu]"
+            echo ""
+            echo "  interactive  - Command-line style interface (default)"
+            echo "  menu         - Menu-driven interface"
+            exit 1
+            ;;
+    esac
+}
+
+# Don't run if being sourced
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main_gum "$@"
+fi

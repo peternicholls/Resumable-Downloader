@@ -1,0 +1,457 @@
+metadata:
+  id: "F006"
+  name: "Security Posture"
+  version: "0.2.0"
+  sprint: 1
+  status: "planned"
+  priority: "P1"
+  story_points: 8
+  created: "2025-12-24"
+  updated: "2025-12-24"
+
+description: |
+  Implement HTTPS-only enforcement, TLS verification, and proxy support to meet
+  Constitution Principle X (Security Posture).
+
+  Current v0.1.0 allows HTTP downloads without warning, which violates the
+  constitution's security requirements. This feature hardens the download process
+  against man-in-the-middle attacks and credential leaks.
+
+constitution_compliance:
+  principles:
+    - id: "X"
+      name: "Security Posture"
+      notes: "Core implementation of HTTPS-only, TLS verification, no credential logging"
+
+    - id: "IX"
+      name: "Privacy & Data Minimization"
+      notes: "No credential storage in logs or state files"
+
+  gates:
+    - gate: "Security"
+      requirement: "HTTPS-only by default"
+      test: "TestHTTPSEnforcement in tests/security/https_test.go"
+
+    - gate: "Security"
+      requirement: "No credentials in logs"
+      test: "TestNoCredentialsInLogs in tests/security/credential_leak_test.go"
+
+    - gate: "Security"
+      requirement: "TLS verification via system CA trust"
+      test: "TestTLSVerification in tests/security/tls_test.go"
+
+user_stories:
+  - id: "US006-1"
+    priority: "P1"
+    title: "HTTPS-only downloads by default"
+    description: |
+      As a security-conscious user,
+      I want HTTP downloads to be blocked by default,
+      So that my downloads are protected from man-in-the-middle attacks.
+
+    acceptance_criteria:
+      - "GIVEN a HTTP URL, WHEN I run safedownload without flags, THEN it fails with exit code 1 and message 'HTTPS required'"
+      - "GIVEN a HTTP URL, WHEN I run safedownload --allow-http, THEN it downloads successfully but logs a security warning"
+      - "GIVEN a HTTPS URL, WHEN I run safedownload, THEN it downloads normally without warnings"
+
+    independent_test: |
+      1. Run: safedownload http://example.com/file.txt
+      2. Verify: Exit code 1, error message contains "HTTPS required"
+      3. Run: safedownload http://example.com/file.txt --allow-http
+      4. Verify: Exit code 0, warning logged to ~/.safedownload/safedownload.log
+
+    definition_of_done:
+      - "HTTPS enforcement implemented in download logic"
+      - "--allow-http flag added to CLI"
+      - "Security warning logged when --allow-http used"
+      - "Unit tests pass (>80% coverage)"
+      - "E2E test verifies CLI behavior"
+      - "README updated with security section"
+
+  - id: "US006-2"
+    priority: "P1"
+    title: "TLS certificate verification"
+    description: |
+      As a user downloading sensitive files,
+      I want TLS certificates verified against system CA trust store,
+      So that I'm protected from impersonation attacks.
+
+    acceptance_criteria:
+      - "GIVEN a HTTPS URL with valid cert, WHEN I download, THEN it succeeds"
+      - "GIVEN a HTTPS URL with invalid cert, WHEN I download, THEN it fails with exit code 2 and error message"
+      - "GIVEN a HTTPS URL with invalid cert, WHEN I use --insecure flag, THEN it downloads but logs security warning"
+
+    independent_test: |
+      1. Setup: Create local HTTPS server with self-signed cert
+      2. Run: safedownload https://localhost:8443/file.txt
+      3. Verify: Exit code 2, error contains "certificate verification failed"
+      4. Run: safedownload https://localhost:8443/file.txt --insecure
+      5. Verify: Exit code 0, warning logged
+
+    definition_of_done:
+      - "TLS verification enabled via curl --cacert or Go TLS config"
+      - "--insecure flag added to CLI"
+      - "Security warning logged when --insecure used"
+      - "Unit tests with valid/invalid certs"
+      - "E2E test with self-signed cert"
+
+  - id: "US006-3"
+    priority: "P2"
+    title: "HTTP proxy support with security"
+    description: |
+      As a user behind a corporate proxy,
+      I want downloads to respect HTTP_PROXY/HTTPS_PROXY environment variables,
+      So that I can download files through my organization's network.
+
+    acceptance_criteria:
+      - "GIVEN HTTP_PROXY set, WHEN I download HTTP (with --allow-http), THEN request routes through proxy"
+      - "GIVEN HTTPS_PROXY set, WHEN I download HTTPS, THEN request routes through proxy"
+      - "GIVEN NO_PROXY set, WHEN URL matches NO_PROXY, THEN request bypasses proxy"
+      - "GIVEN proxy URL contains credentials, WHEN download completes, THEN credentials NOT logged"
+
+    independent_test: |
+      1. Export HTTP_PROXY=http://proxy.example.com:8080
+      2. Run: safedownload http://example.com/file.txt --allow-http
+      3. Verify: curl output shows proxy usage (check logs)
+      4. Verify: No proxy credentials in safedownload.log
+
+    definition_of_done:
+      - "Proxy support via curl --proxy or Go http.ProxyFromEnvironment"
+      - "NO_PROXY respected"
+      - "Proxy credentials sanitized in logs"
+      - "Unit tests with mock proxy"
+      - "E2E test with localhost proxy (squid/tinyproxy)"
+
+functional_requirements:
+  - id: "FR006-1"
+    description: "System MUST reject HTTP URLs by default with exit code 1"
+    priority: "MUST"
+    test: "Run safedownload http://example.com/file.txt, verify exit 1"
+
+  - id: "FR006-2"
+    description: "System MUST allow HTTP downloads when --allow-http flag provided"
+    priority: "MUST"
+    test: "Run safedownload http://example.com/file.txt --allow-http, verify exit 0"
+
+  - id: "FR006-3"
+    description: "System MUST log security warning when --allow-http used"
+    priority: "MUST"
+    test: "Check ~/.safedownload/safedownload.log contains '[SECURITY WARNING] HTTP download allowed'"
+
+  - id: "FR006-4"
+    description: "System MUST verify TLS certificates via system CA trust store"
+    priority: "MUST"
+    test: "Download from HTTPS with invalid cert, verify exit 2"
+
+  - id: "FR006-5"
+    description: "System MUST support --insecure flag to skip TLS verification"
+    priority: "MUST"
+    test: "Download with --insecure, verify exit 0 + warning logged"
+
+  - id: "FR006-6"
+    description: "System MUST respect HTTP_PROXY, HTTPS_PROXY, NO_PROXY environment variables"
+    priority: "MUST"
+    test: "Set HTTP_PROXY, verify proxy usage in curl logs"
+
+  - id: "FR006-7"
+    description: "System MUST NOT log credentials (URLs, proxy auth, headers)"
+    priority: "MUST"
+    test: "Download with Basic Auth URL, verify password not in logs"
+
+non_functional_requirements:
+  performance:
+    - "TLS handshake MUST NOT add >500ms to download start time"
+
+  security:
+    - "HTTPS-only by default (HTTP requires --allow-http flag)"
+    - "TLS verification via system CA trust store"
+    - "No credentials logged (URLs sanitized, headers filtered)"
+    - "Security warnings logged for --allow-http and --insecure"
+
+  privacy:
+    - "No proxy credentials logged"
+    - "No URL credentials logged (sanitize user:pass@ from URLs)"
+
+  accessibility:
+    - "Error messages MUST be clear: 'HTTPS required. Use --allow-http to allow HTTP downloads.'"
+
+  platform_support:
+    - "Tier 1: macOS, Ubuntu LTS, Debian 12+ (system CA trust stores vary)"
+    - "curl 7.60+ (supports --cacert and --proxy)"
+
+implementation:
+  packages:
+    - name: "pkg/downloader"
+      purpose: "HTTPS enforcement and TLS verification (Go v1.0.0+)"
+      new_files: []
+      modified_files:
+        - "pkg/downloader/downloader.go (add HTTPS check, TLS config)"
+
+    - name: "pkg/config"
+      purpose: "Add --allow-http and --insecure flags"
+      new_files: []
+      modified_files:
+        - "pkg/config/config.go (add AllowHTTP, Insecure fields)"
+
+    - name: "pkg/logger"
+      purpose: "Credential sanitization in logs"
+      new_files:
+        - "pkg/logger/sanitize.go (URL and header sanitization)"
+        - "pkg/logger/sanitize_test.go"
+      modified_files:
+        - "pkg/logger/logger.go (apply sanitization)"
+
+  # For v0.2.0 (Bash/Python), modify shell scripts
+  bash_changes:
+    - file: "safedownload"
+      changes:
+        - "Add --allow-http flag parsing"
+        - "Add HTTPS check before curl invocation"
+        - "Add --insecure flag → curl -k mapping"
+        - "Sanitize URLs in log output"
+
+  cli:
+    new_flags:
+      - flag: "--allow-http"
+        type: "boolean"
+        default: "false"
+        description: "Allow HTTP downloads (default: HTTPS-only). Logs security warning."
+
+      - flag: "--insecure"
+        type: "boolean"
+        default: "false"
+        description: "Skip TLS certificate verification. Logs security warning."
+
+    new_commands: []
+
+  schema_changes:
+    state_json:
+      version: "1.0.0"
+      changes: [] # No state schema changes
+
+    config_json:
+      version: "1.0.0"
+      changes:
+        - type: "add"
+          field: "downloads.allow_http"
+          data_type: "boolean"
+          optional: true
+          migration: "Defaults to false if missing"
+
+        - type: "add"
+          field: "downloads.verify_tls"
+          data_type: "boolean"
+          optional: true
+          migration: "Defaults to true if missing"
+
+  storage:
+    - "No storage changes"
+
+testing:
+  unit_tests:
+    - file: "pkg/downloader/downloader_test.go (Go)"
+      functions:
+        - "TestDownloader_HTTPRejectedByDefault"
+        - "TestDownloader_HTTPAllowedWithFlag"
+        - "TestDownloader_TLSVerificationValid"
+        - "TestDownloader_TLSVerificationInvalid"
+        - "TestDownloader_InsecureFlagSkipsTLS"
+      coverage_target: "80%"
+
+    - file: "pkg/logger/sanitize_test.go (Go)"
+      functions:
+        - "TestSanitizeURL_BasicAuth"
+        - "TestSanitizeURL_ProxyAuth"
+        - "TestSanitizeHeaders_Authorization"
+      coverage_target: "100%"
+
+  integration_tests:
+    - file: "tests/integration/https_enforcement_test.go (Go)"
+      scenarios:
+        - "HTTP URL rejected, HTTPS succeeds"
+        - "TLS verification with mock server"
+      coverage_target: "HTTPS enforcement flow"
+
+  e2e_tests:
+    - file: "tests/e2e/security_test.bats (Bash)"
+      scenarios:
+        - "CLI: HTTPS-only enforcement"
+        - "CLI: --allow-http enables HTTP with warning"
+        - "CLI: --insecure skips TLS verification"
+        - "CLI: Proxy support via HTTP_PROXY"
+
+  manual_tests:
+    - "Test with corporate proxy (manual, optional)"
+    - "Test with various CA trust stores (macOS Keychain, Linux ca-certificates)"
+
+dependencies:
+  external:
+    - name: "curl"
+      version: "7.60+"
+      license: "MIT-like"
+      justification: "Core download engine (v0.x)"
+      optional: false
+
+    - name: "Go stdlib (net/http, crypto/tls)"
+      version: "Go 1.21+"
+      license: "BSD-3-Clause"
+      justification: "HTTPS and TLS for v1.0.0+"
+      optional: false
+
+  internal: []
+
+  platform:
+    - "System CA trust store (macOS Keychain, /etc/ssl/certs on Linux)"
+
+documentation:
+  readme_sections:
+    - section: "Security"
+      changes: |
+        Add new "Security" section explaining:
+        - HTTPS-only by default
+        - How to allow HTTP (--allow-http) with warning
+        - TLS verification and --insecure flag
+        - Proxy support (HTTP_PROXY, HTTPS_PROXY, NO_PROXY)
+        - No credential logging policy
+
+  new_docs: []
+
+  changelog:
+    type: "Added"
+    entry: |
+      ### Security (Principle X: Security Posture)
+      - HTTPS-only enforcement: HTTP URLs rejected by default
+      - --allow-http flag: Explicitly allow HTTP with security warning
+      - TLS verification via system CA trust store
+      - --insecure flag: Skip TLS verification (logs warning)
+      - HTTP proxy support (HTTP_PROXY, HTTPS_PROXY, NO_PROXY)
+      - Credential sanitization: No passwords logged in URLs or headers
+
+edge_cases:
+  - case: "HTTP redirect to HTTPS"
+    expected_behavior: "Follow redirect, final URL must be HTTPS"
+    test: "TestDownloader_HTTPRedirectToHTTPS"
+
+  - case: "HTTPS redirect to HTTP"
+    expected_behavior: "Reject redirect unless --allow-http"
+    test: "TestDownloader_HTTPSRedirectToHTTP"
+
+  - case: "URL with embedded credentials (http://user:pass@example.com)"
+    expected_behavior: "Sanitize logs to 'http://user:***@example.com'"
+    test: "TestSanitizeURL_EmbeddedCredentials"
+
+  - case: "Proxy with credentials (HTTP_PROXY=http://user:pass@proxy:8080)"
+    expected_behavior: "Use proxy, sanitize logs"
+    test: "TestDownloader_ProxyWithCredentials"
+
+error_handling:
+  - error: "HTTP URL without --allow-http"
+    exit_code: 1
+    retry: false
+    user_action: "Use --allow-http flag or switch to HTTPS URL"
+
+  - error: "TLS verification failure"
+    exit_code: 2
+    retry: false
+    user_action: "Check certificate validity or use --insecure (not recommended)"
+
+  - error: "Proxy connection failure"
+    exit_code: 2
+    retry: true
+    retry_policy: "Exponential backoff: 1s, 2s, 4s"
+
+risks:
+  - id: "RISK006-1"
+    title: "Breaking existing HTTP workflows"
+    impact: "medium"
+    probability: "high"
+    mitigation: |
+      - Provide --allow-http flag for backward compatibility
+      - Clear error message explaining how to allow HTTP
+      - Document migration in CHANGELOG
+
+  - id: "RISK006-2"
+    title: "Corporate proxy compatibility issues"
+    impact: "medium"
+    probability: "medium"
+    mitigation: |
+      - Support standard HTTP_PROXY/HTTPS_PROXY env vars
+      - Test with common proxy servers (squid, tinyproxy)
+      - Document proxy setup in README
+
+alternatives:
+  - approach: "Warn on HTTP instead of blocking"
+    pros:
+      - "Less disruptive to existing users"
+      - "No --allow-http flag needed"
+    cons:
+      - "Violates Constitution Principle X (HTTPS-only default)"
+      - "Users may ignore warnings"
+    reason_rejected: "Constitution requires HTTPS-only by default, not just warnings"
+
+success_criteria:
+  quantitative:
+    - "100% of tests pass (unit, integration, E2E)"
+    - "0 credentials leaked in logs (verified by security tests)"
+
+  qualitative:
+    - "Clear error messages guide users to --allow-http"
+    - "No user complaints about proxy compatibility"
+
+sprint_tasks:
+  setup:
+    - task: "T006-001"
+      description: "Add --allow-http and --insecure flags to CLI parser"
+      assignee: "@peternicholls"
+      estimate: "1 SP"
+
+  implementation:
+    - task: "T006-002"
+      description: "Implement HTTPS enforcement in download logic"
+      assignee: "@peternicholls"
+      estimate: "2 SP"
+
+    - task: "T006-003"
+      description: "Implement TLS verification with --insecure bypass"
+      assignee: "@peternicholls"
+      estimate: "2 SP"
+
+    - task: "T006-004"
+      description: "Implement proxy support (HTTP_PROXY, HTTPS_PROXY, NO_PROXY)"
+      assignee: "@peternicholls"
+      estimate: "2 SP"
+
+    - task: "T006-005"
+      description: "Implement credential sanitization in logger"
+      assignee: "@peternicholls"
+      estimate: "1 SP"
+
+  testing:
+    - task: "T006-006"
+      description: "Write unit tests for HTTPS enforcement and sanitization"
+      assignee: "@peternicholls"
+      estimate: "2 SP"
+
+    - task: "T006-007"
+      description: "Write E2E tests for CLI security features"
+      assignee: "@peternicholls"
+      estimate: "1 SP"
+
+  documentation:
+    - task: "T006-008"
+      description: "Update README with Security section"
+      assignee: "@peternicholls"
+      estimate: "1 SP"
+
+notes: |
+  Constitution Compliance: This feature implements Principle X (Security Posture)
+  and aligns with Principle IX (Privacy & Data Minimization) by preventing
+  credential leaks.
+
+  For v0.2.0 (Bash/Python), implementation is in shell scripts via curl flags.
+  For v1.0.0+ (Go), implementation moves to pkg/downloader with native TLS config.
+
+  Related Constitution sections:
+  - Principle X: Security Posture (HTTPS-only, TLS verification)
+  - Error Handling & Exit Codes (exit 1 for HTTP, exit 2 for TLS failure)
+  - Platform Support (Tier 1 platforms with system CA trust stores)

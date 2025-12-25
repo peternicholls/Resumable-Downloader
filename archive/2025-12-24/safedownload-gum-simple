@@ -1,0 +1,206 @@
+#!/usr/bin/env bash
+#
+# SafeDownload Simple Gum TUI
+# Clean, professional minimal interface
+#
+
+set -euo pipefail
+
+check_gum() {
+    if ! command -v gum &> /dev/null; then
+        echo "Error: Gum is not installed. Run: ./install-tui.sh"
+        exit 1
+    fi
+}
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+GRAY='\033[0;90m'
+NC='\033[0m'
+BOLD='\033[1m'
+
+# Get main script directory for sourcing core functions
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Create temporary file with main script minus the main() function
+TEMP_SCRIPT=$(mktemp)
+trap "rm -f $TEMP_SCRIPT" EXIT
+
+# Copy everything except the main() function and calls to it
+sed '/^# ==============================================================================$/,/^main\|^# Run main$/d' "${SCRIPT_DIR}/safedownload" > "$TEMP_SCRIPT"
+
+# Now source it
+source "$TEMP_SCRIPT"
+
+run_gum_tui_simple() {
+    check_gum
+    init_state_dir
+    
+    echo ""
+    gum style --foreground 212 --bold "SafeDownload v${VERSION}"
+    echo ""
+    
+    # Auto-resume interrupted downloads
+    local interrupted
+    interrupted=$(get_downloads_by_state "$STATE_DOWNLOADING" 2>/dev/null) || true
+    if [[ -n "$interrupted" ]]; then
+        echo "$interrupted" | while IFS= read -r dl; do
+            [[ -z "$dl" ]] && continue
+            local id
+            id=$(echo "$dl" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])" 2>/dev/null) || true
+            [[ -n "$id" ]] && update_download_state "$id" "$STATE_QUEUED"
+        done
+        process_queue &
+    fi
+    
+    # Main loop
+    while true; do
+        # Show downloads
+        local downloads
+        downloads=$(list_downloads 2>/dev/null) || true
+        
+        if [[ -n "$downloads" ]]; then
+            echo ""
+            gum style --bold "Downloads:"
+            echo "$downloads" | while IFS= read -r dl; do
+                [[ -z "$dl" ]] && continue
+                
+                local id state output progress
+                id=$(echo "$dl" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])" 2>/dev/null) || id="?"
+                state=$(echo "$dl" | python3 -c "import json,sys; print(json.load(sys.stdin)['state'])" 2>/dev/null) || state="?"
+                output=$(echo "$dl" | python3 -c "import json,sys; print(json.load(sys.stdin)['output'])" 2>/dev/null) || output="?"
+                progress=$(echo "$dl" | python3 -c "import json,sys; print(json.load(sys.stdin).get('progress', 0))" 2>/dev/null) || progress="0"
+                
+                local state_icon
+                case "$state" in
+                    "$STATE_QUEUED")     state_icon="⏳" ;;
+                    "$STATE_DOWNLOADING") state_icon="⬇️ " ;;
+                    "$STATE_PAUSED")     state_icon="⏸️ " ;;
+                    "$STATE_COMPLETED")  state_icon="✅" ;;
+                    "$STATE_FAILED")     state_icon="❌" ;;
+                    *)                   state_icon="❓" ;;
+                esac
+                
+                local display_name="$output"
+                [[ ${#display_name} -gt 60 ]] && display_name="${display_name:0:57}..."
+                
+                printf "  %s #%-2s %s %3s%%\n" "$state_icon" "$id" "$display_name" "$progress"
+            done
+            echo ""
+        fi
+        
+        # Get input
+        local input
+        input=$(gum input --placeholder "Enter command or URL..." --prompt "› " --width 80) || {
+            gum confirm "Exit SafeDownload?" && break || continue
+        }
+        
+        [[ -z "$input" ]] && continue
+        
+        local cmd="${input%% *}"
+        local args="${input#* }"
+        [[ "$args" == "$cmd" ]] && args=""
+        
+        case "$cmd" in
+            quit|q|exit)
+                gum style --foreground 212 "👋 Goodbye!"
+                exit 0
+                ;;
+            help|h|\?)
+                echo ""
+                gum style --bold "Commands:"
+                echo "  URL                Add download URL"
+                echo "  stop <ID>          Stop download"
+                echo "  resume <ID>        Resume download"
+                echo "  clear [ID|all]     Clear downloads"
+                echo "  list               List downloads"
+                echo "  status             Show status"
+                echo "  parallel <N>       Max parallel (1-10)"
+                echo "  manifest <FILE>    Load manifest"
+                echo "  help               Show this help"
+                echo "  quit               Exit"
+                echo ""
+                ;;
+            stop)
+                if [[ "$args" =~ ^[0-9]+$ ]]; then
+                    stop_download "$args" 2>/dev/null || true
+                    gum style --foreground 82 "✓ Stopped download #$args"
+                else
+                    gum style --foreground 196 "✗ Usage: stop <ID>"
+                fi
+                ;;
+            resume)
+                if [[ "$args" =~ ^[0-9]+$ ]]; then
+                    resume_download "$args" 2>/dev/null || true
+                    gum style --foreground 82 "✓ Resumed download #$args"
+                else
+                    gum style --foreground 196 "✗ Usage: resume <ID>"
+                fi
+                ;;
+            clear)
+                if [[ "$args" == "all" ]]; then
+                    clear_all_except_inprogress 2>/dev/null || true
+                    gum style --foreground 82 "✓ Cleared all except in-progress"
+                elif [[ -n "$args" && "$args" =~ ^[0-9]+$ ]]; then
+                    remove_download "$args" 2>/dev/null || true
+                    gum style --foreground 82 "✓ Removed download #$args"
+                else
+                    clear_completed 2>/dev/null || true
+                    gum style --foreground 82 "✓ Cleared completed"
+                fi
+                ;;
+            list|ls)
+                :
+                ;;
+            status|s)
+                echo ""
+                gum style --bold "Status:"
+                local count
+                count=$(count_active_downloads 2>/dev/null) || count="0"
+                echo "  Active: $count / $MAX_PARALLEL_DOWNLOADS"
+                echo "  State: $STATE_DIR"
+                echo ""
+                ;;
+            parallel)
+                if [[ "$args" =~ ^[0-9]+$ ]] && [[ "$args" -ge 1 ]] && [[ "$args" -le 10 ]]; then
+                    MAX_PARALLEL_DOWNLOADS=$args
+                    gum style --foreground 82 "✓ Max parallel set to $args"
+                else
+                    gum style --foreground 196 "✗ Usage: parallel <1-10>"
+                fi
+                ;;
+            manifest)
+                if [[ -f "$args" ]]; then
+                    parse_manifest "$args" 2>/dev/null || true
+                    gum style --foreground 82 "✓ Manifest loaded, starting downloads"
+                    ( process_queue ) &
+                else
+                    gum style --foreground 196 "✗ File not found: $args"
+                fi
+                ;;
+            *)
+                if [[ "$input" =~ ^https?:// ]]; then
+                    local filename
+                    filename=$(get_filename_from_url "$input" 2>/dev/null) || filename="download"
+                    local id
+                    id=$(add_download "$input" "$filename" "" "" 2>/dev/null) || id="?"
+                    if [[ "$id" != "?" ]]; then
+                        gum style --foreground 82 "✓ Added #$id: $filename"
+                        start_background_download "$id" 2>/dev/null || true
+                    fi
+                else
+                    gum style --foreground 196 "✗ Unknown command: $cmd"
+                fi
+                ;;
+        esac
+    done
+}
+
+# Run if executed directly
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    run_gum_tui_simple
+fi

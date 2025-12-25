@@ -1,0 +1,285 @@
+# Feature Specification Template
+# Use this template for all feature specs in dev/specs/features/
+
+metadata:
+  id: "F000" # Sequential feature ID from roadmap.yaml
+  name: "Feature Name"
+  version: "X.Y.Z" # Target version for this feature
+  sprint: 0 # Target sprint number (if planned)
+  status: "planned" # planned | in_progress | completed | blocked
+  priority: "P1" # P1 (critical) | P2 (important) | P3 (nice-to-have)
+  story_points: 0 # Estimated effort (Fibonacci: 1, 2, 3, 5, 8, 13, 21)
+  created: "YYYY-MM-DD"
+  updated: "YYYY-MM-DD"
+
+# Brief description of the feature (2-3 sentences)
+description: |
+  What is this feature? Why is it needed?
+
+  What user problem does it solve?
+
+# Constitution alignment
+constitution_compliance:
+  principles:
+    # List applicable constitution principles with brief notes
+    - id: "I"
+      name: "Professional User Experience"
+      notes: "How this feature enhances UX"
+
+    - id: "IV"
+      name: "Verification & Trust"
+      notes: "How this feature ensures trust"
+
+  # Quality gates this feature must pass
+  gates:
+    - gate: "Performance"
+      requirement: "TUI startup <500ms"
+      test: "BenchmarkTUIStartup in pkg/ui/ui_bench_test.go"
+
+    - gate: "Security"
+      requirement: "No credentials in logs"
+      test: "TestNoCredentialsInLogs in tests/security/credential_leak_test.go"
+
+# User stories (prioritized, independently testable)
+user_stories:
+  - id: "US000-1"
+    priority: "P1"
+    title: "Short descriptive title"
+    description: |
+      As a [user type],
+      I want to [action],
+      So that [benefit].
+
+    acceptance_criteria:
+      - "GIVEN [initial state], WHEN [action], THEN [expected outcome]"
+      - "GIVEN [initial state], WHEN [action], THEN [expected outcome]"
+
+    # How to test this story independently (for MVP slicing)
+    independent_test: |
+      Describe how to verify this story works standalone.
+      Example: "Install feature, run `/command arg`, verify output shows X."
+
+    # Exit condition: when is this story done?
+    definition_of_done:
+      - "Code implemented and reviewed"
+      - "Unit tests pass (>80% coverage)"
+      - "Integration test passes"
+      - "Documentation updated (README, CHANGELOG)"
+      - "Constitution gates verified"
+
+# Functional requirements (testable, unambiguous)
+functional_requirements:
+  - id: "FR000-1"
+    description: "System MUST [specific capability]"
+    priority: "MUST" # MUST | SHOULD | MAY
+    test: "Describe how to verify this requirement"
+
+  - id: "FR000-2"
+    description: "System SHOULD [optional capability]"
+    priority: "SHOULD"
+    test: "Describe how to verify this requirement"
+
+# Non-functional requirements (constitution-mandated)
+non_functional_requirements:
+  performance:
+    - "Specific performance requirement (e.g., <100ms response time)"
+
+  security:
+    - "HTTPS-only for network requests"
+    - "No credentials logged"
+
+  privacy:
+    - "No telemetry or external data transmission"
+    - "Local-only storage in ~/.safedownload/"
+
+  accessibility:
+    - "High-contrast mode support"
+    - "Status indicators combine emoji + text labels"
+
+  platform_support:
+    - "Tier 1: macOS (latest 2), Ubuntu LTS (22.04, 24.04), Debian 12+"
+    - "Tier 2: Fedora, Arch (best-effort)"
+
+# Implementation details
+implementation:
+  # Packages/modules to create or modify
+  packages:
+    - name: "pkg/example"
+      purpose: "Core logic for this feature"
+      new_files:
+        - "pkg/example/example.go"
+        - "pkg/example/example_test.go"
+      modified_files:
+        - "pkg/config/config.go (add new config field)"
+
+  # CLI changes (if any)
+  cli:
+    new_flags:
+      - flag: "--example"
+        type: "string"
+        default: "default_value"
+        description: "Example flag description"
+
+    new_commands:
+      - command: "/example"
+        description: "Example TUI slash command"
+        args: "<arg1> [arg2]"
+
+  # State/config schema changes (if any)
+  schema_changes:
+    state_json:
+      version: "1.0.0" # Schema version (increment if breaking)
+      changes:
+        - type: "add"
+          field: "downloads[].new_field"
+          data_type: "string"
+          optional: true
+          migration: "Not required (optional field)"
+
+    config_json:
+      version: "1.0.0"
+      changes: []
+
+  # Database/storage changes (if any)
+  storage:
+    - "No storage changes"
+
+# Testing plan
+testing:
+  unit_tests:
+    - file: "pkg/example/example_test.go"
+      functions:
+        - "TestExample_HappyPath"
+        - "TestExample_ErrorCase"
+      coverage_target: "80%"
+
+  integration_tests:
+    - file: "tests/integration/example_test.go"
+      scenarios:
+        - "Full lifecycle test for this feature"
+      coverage_target: "Main user flows"
+
+  e2e_tests:
+    - file: "tests/e2e/example_test.bats"
+      scenarios:
+        - "CLI: example command with valid input"
+        - "CLI: example command with invalid input"
+
+  manual_tests:
+    - "Manual accessibility test: high-contrast mode"
+    - "Manual screen-reader test (VoiceOver/Orca)"
+
+# Dependencies (libraries, tools, other features)
+dependencies:
+  external:
+    - name: "example-library"
+      version: "^1.2.3"
+      license: "MIT"
+      justification: "Needed for X functionality"
+      optional: false # true if optional runtime dependency
+
+  internal:
+    - feature: "F001"
+      name: "Core Download Engine"
+      reason: "This feature extends download behavior"
+
+  platform:
+    - "curl 7.60+ (constitution requirement)"
+    - "Go 1.21+ (for v1.0.0+)"
+
+# Documentation requirements
+documentation:
+  readme_sections:
+    - section: "Usage"
+      changes: "Add example for new --example flag"
+
+  new_docs:
+    - file: "docs/EXAMPLE_GUIDE.md"
+      purpose: "Detailed guide for this feature"
+
+  changelog:
+    type: "Added" # Added | Changed | Fixed | Security
+    entry: |
+      - Example feature description for CHANGELOG.md
+      - Constitution Principle I: Professional UX
+
+# Edge cases and error handling
+edge_cases:
+  - case: "Empty input"
+    expected_behavior: "Return error with exit code 1"
+    test: "TestExample_EmptyInput"
+
+  - case: "Very large input (>2GB)"
+    expected_behavior: "Handle with int64, not int32"
+    test: "TestExample_LargeInput"
+
+error_handling:
+  - error: "Network timeout"
+    exit_code: 2
+    retry: true
+    retry_policy: "Exponential backoff: 1s, 2s, 4s"
+
+  - error: "Permission denied"
+    exit_code: 4
+    retry: false
+    user_action: "Check file permissions on output directory"
+
+# Risks and mitigations
+risks:
+  - id: "RISK000-1"
+    title: "Example risk description"
+    impact: "high" # low | medium | high | critical
+    probability: "medium" # low | medium | high
+    mitigation: |
+      Describe how to mitigate this risk.
+      Example: "Add comprehensive error handling and tests."
+
+# Alternatives considered (why this approach was chosen)
+alternatives:
+  - approach: "Alternative approach description"
+    pros:
+      - "Pro 1"
+      - "Pro 2"
+    cons:
+      - "Con 1"
+      - "Con 2"
+    reason_rejected: "Why this approach was not chosen"
+
+# Success criteria (how to measure success)
+success_criteria:
+  quantitative:
+    - "Metric 1: Target value"
+    - "Metric 2: Target value"
+
+  qualitative:
+    - "User feedback: Positive >80%"
+    - "No critical bugs in first 2 weeks"
+
+# Sprint breakdown (if part of sprint planning)
+sprint_tasks:
+  setup:
+    - task: "T000-001"
+      description: "Setup package structure"
+      assignee: "TBD"
+      estimate: "1 SP"
+
+  implementation:
+    - task: "T000-002"
+      description: "Implement core logic"
+      assignee: "TBD"
+      estimate: "5 SP"
+
+  testing:
+    - task: "T000-003"
+      description: "Write unit tests"
+      assignee: "TBD"
+      estimate: "2 SP"
+
+# Notes and additional context
+notes: |
+  Any additional context, links to discussions, related issues, etc.
+
+  Example:
+  - Related GitHub Issue: #123
+  - Design discussion: https://link-to-discussion
+  - Reference implementation: https://link-to-example

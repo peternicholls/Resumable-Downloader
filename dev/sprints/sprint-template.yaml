@@ -1,0 +1,149 @@
+# Sprint Planning Template
+# Copy this file to sprint-NN.yaml and fill in details
+
+metadata:
+  sprint: 0 # Sequential sprint number
+  version: "X.Y.Z" # Target release version
+  start_date: "YYYY-MM-DD"
+  end_date: "YYYY-MM-DD"
+  duration_weeks: 2
+  goal: "High-level sprint goal (one sentence)"
+
+# Features planned for this sprint (from dev/roadmap.yaml)
+features:
+  - id: "F000"
+    name: "Feature Name"
+    story_points: 0
+    status: "not_started" # not_started | in_progress | completed | blocked
+    priority: "P1" # P1 (must have) | P2 (should have) | P3 (nice to have)
+    dependencies: [] # List of feature IDs this depends on
+    notes: |
+      Any sprint-specific notes about this feature.
+      E.g., "Focus on US001-1 and US001-2 only this sprint"
+
+# Daily task breakdown
+tasks:
+  # Setup phase
+  - id: "T000-001"
+    feature: "F000"
+    title: "Short task description"
+    assignee: "@username" # GitHub username
+    estimate: "1 SP" # Story points or hours
+    status: "not_started" # not_started | in_progress | completed | blocked
+    day: 1 # Target day within sprint (1-10 for 2-week sprint)
+    dependencies: [] # List of task IDs this depends on
+    notes: ""
+
+  # Implementation phase
+  - id: "T000-002"
+    feature: "F000"
+    title: "Implement core logic"
+    assignee: "@username"
+    estimate: "5 SP"
+    status: "not_started"
+    day: 2
+    dependencies: ["T000-001"]
+    notes: ""
+
+  # Testing phase
+  - id: "T000-003"
+    feature: "F000"
+    title: "Write unit tests"
+    assignee: "@username"
+    estimate: "2 SP"
+    status: "not_started"
+    day: 7
+    dependencies: ["T000-002"]
+    notes: ""
+
+  # Documentation phase
+  - id: "T000-004"
+    feature: "F000"
+    title: "Update README and CHANGELOG"
+    assignee: "@username"
+    estimate: "1 SP"
+    status: "not_started"
+    day: 9
+    dependencies: ["T000-003"]
+    notes: ""
+
+# Sprint capacity and velocity
+capacity:
+  team_size: 1
+  available_days: 10 # Working days in sprint
+  planned_story_points: 0 # Sum of all task estimates
+  buffer_percentage: 20 # Reserve 20% for unknowns
+
+# Daily progress tracking (update daily)
+daily_log:
+  day_1:
+    date: "YYYY-MM-DD"
+    completed_tasks: []
+    blockers: []
+    notes: ""
+
+  day_2:
+    date: "YYYY-MM-DD"
+    completed_tasks: []
+    blockers: []
+    notes: ""
+
+  # ... continue for each day
+
+# Sprint review (fill at end of sprint)
+review:
+  completed_story_points: 0
+  velocity_percentage: 0 # (completed / planned) * 100
+  features_completed: []
+  features_carried_over: []
+  demo_notes: |
+    What was demoed/shipped this sprint?
+
+# Sprint retrospective (fill at end of sprint)
+retrospective:
+  what_went_well:
+    - "Item 1"
+    - "Item 2"
+
+  what_to_improve:
+    - "Item 1"
+    - "Item 2"
+
+  action_items:
+    - action: "Specific action to take"
+      owner: "@username"
+      due_date: "YYYY-MM-DD"
+      status: "pending" # pending | completed
+
+  constitution_compliance:
+    gates_passed:
+      - "Performance: TUI startup <500ms ✅"
+      - "Security: No credentials in logs ✅"
+    gates_failed: []
+    notes: ""
+
+# Risks and issues
+risks:
+  - id: "RISK-000"
+    title: "Risk description"
+    impact: "high" # low | medium | high | critical
+    probability: "medium" # low | medium | high
+    mitigation: "How we're addressing this"
+    status: "open" # open | mitigated | accepted
+
+# Sprint metrics
+metrics:
+  burndown_chart: "dev/sprints/sprint-N-burndown.png" # Optional
+  code_coverage: "0%" # From CI
+  tests_passing: "0/0" # Passing/Total
+  bugs_found: 0
+  bugs_fixed: 0
+
+# Notes
+notes: |
+  Any additional context, links, or information relevant to this sprint.
+
+  Examples:
+  - Sprint planning meeting notes: https://link
+  - Related GitHub milestone: https://github.com/owner/repo/milestone/N
+  - Slack thread: https://link

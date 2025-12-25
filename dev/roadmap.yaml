@@ -1,0 +1,755 @@
+# SafeDownload Development Roadmap
+# Constitution: v1.3.0
+# Current Version: 0.1.0
+# Last Updated: 2025-12-24
+
+metadata:
+  project: SafeDownload
+  repository: peternicholls/SafeDownload
+  constitution_version: "1.3.0"
+  current_version: "0.1.0"
+  versioning: semantic # MAJOR.MINOR.PATCH
+  release_cycle: "6-8 weeks for minor releases"
+
+# =============================================================================
+# RELEASE PHASES
+# =============================================================================
+
+releases:
+  # ---------------------------------------------------------------------------
+  # Phase 0: CURRENT STATE (Bash/Python)
+  # ---------------------------------------------------------------------------
+  - version: "0.1.0"
+    codename: "Bootstrap"
+    status: completed
+    release_date: "2025-12-24"
+    type: initial
+    description: "Initial release with core download functionality in Bash/Python"
+
+    features:
+      - id: F001
+        name: "Core Download Engine"
+        status: completed
+        components:
+          - Basic curl-based downloads
+          - Resume support via HTTP range requests
+          - .part file tracking
+
+      - id: F002
+        name: "Checksum Verification"
+        status: completed
+        components:
+          - SHA256, SHA512, SHA1, MD5 support
+          - Size verification
+          - Fatal on mismatch
+
+      - id: F003
+        name: "Simple TUI"
+        status: completed
+        components:
+          - Emoji-based status indicators
+          - Slash command interface
+          - Queue management
+
+      - id: F004
+        name: "State Persistence"
+        status: completed
+        components:
+          - JSON state in ~/.safedownload/
+          - Auto-resume on restart
+          - PID tracking for background downloads
+
+      - id: F005
+        name: "Batch Downloads"
+        status: completed
+        components:
+          - Manifest file support (one URL per line)
+          - Parallel downloads (configurable concurrency)
+          - Per-item checksum support
+
+    constitution_compliance:
+      principles_covered:
+        - I: Professional UX (basic TUI)
+        - II: Optional Features (Gum TUI optional)
+        - III: Resumable Downloads
+        - IV: Verification & Trust
+        - V: Parallel Downloads
+        - VI: Slash Commands
+        - VII: State Persistence
+      gaps:
+        - VIII: Still Bash/Python, not compiled
+        - IX: No explicit /purge command yet
+        - X: HTTP still allowed without flag
+        - XI: No high-contrast mode
+
+  # ---------------------------------------------------------------------------
+  # Phase 1: COMPLIANCE & HARDENING (Bash/Python improvements)
+  # ---------------------------------------------------------------------------
+  - version: "0.2.0"
+    codename: "Shield"
+    status: planned
+    target_date: "Q1 2026"
+    type: minor
+    description: "Security, privacy, and accessibility hardening on current stack"
+    sprint_count: 2
+
+    features:
+      - id: F006
+        name: "Security Posture"
+        priority: P1
+        story_points: 8
+        components:
+          - HTTPS-only default with --allow-http flag
+          - Security warning for --allow-http
+          - TLS verification via system CA trust
+          - --insecure flag with logging
+          - Proxy support (HTTP_PROXY, HTTPS_PROXY, NO_PROXY)
+
+        tests:
+          - HTTPS enforcement with warning on HTTP
+          - TLS verification with valid/invalid certs
+          - Proxy detection and routing
+
+        documentation:
+          - README security section
+          - CHANGELOG security advisory format
+
+      - id: F007
+        name: "Privacy & Data Minimization"
+        priority: P1
+        story_points: 5
+        components:
+          - /purge command (TUI)
+          - --purge CLI flag
+          - Log rotation (10MB cap)
+          - No credential logging audit
+
+        tests:
+          - /purge removes all state/logs/PIDs
+          - Log rotation at 10MB threshold
+          - Verify no credentials in logs
+
+      - id: F008
+        name: "Accessibility"
+        priority: P2
+        story_points: 8
+        components:
+          - --theme flag (light, dark, high-contrast)
+          - Colorblind-safe status indicators
+          - Terminal dimension detection
+          - Graceful degradation for narrow terminals
+          - Plain-text labels for screen readers
+
+        tests:
+          - High-contrast mode visual verification
+          - 80-column terminal graceful degradation
+          - Screen-reader compatibility (manual)
+
+      - id: F009
+        name: "Error Handling & Exit Codes"
+        priority: P2
+        story_points: 5
+        components:
+          - Standardized exit codes (0-4, 130)
+          - Exponential backoff retry (1s, 2s, 4s)
+          - Graceful SIGTERM/SIGINT handling
+          - State save on shutdown
+
+        tests:
+          - Exit code verification for each error type
+          - Retry behavior with network failures
+          - State persistence on Ctrl+C
+
+      - id: F010
+        name: "Schema Versioning"
+        priority: P2
+        story_points: 3
+        components:
+          - Add schema_version to state.json, config.json
+          - Auto-migration logic framework
+          - Forward compatibility handling
+
+        tests:
+          - Migration from 1.0.0 to 1.1.0 schema
+          - Graceful handling of unknown fields
+
+    deliverables:
+      - Updated install.sh with Tier 1 platform detection
+      - install-tui.sh for optional Gum installation
+      - Security testing suite
+      - Accessibility testing checklist
+      - Updated CHANGELOG.md with CVE handling process
+
+  # ---------------------------------------------------------------------------
+  # Phase 2: GO CORE MIGRATION (Compiled binary foundation)
+  # ---------------------------------------------------------------------------
+  - version: "1.0.0"
+    codename: "Phoenix"
+    status: planned
+    target_date: "Q2 2026"
+    type: major
+    description: "Migrate core to Go with CLI contract preservation"
+    sprint_count: 4
+    breaking_changes: true
+
+    architecture:
+      - Core library in Go (safedownload-core)
+      - Shell wrapper delegates to compiled binary
+      - State management in Go (replace Python)
+      - Cross-platform binary releases
+
+    features:
+      - id: F011
+        name: "Go Core Library"
+        priority: P1
+        story_points: 21
+        components:
+          - HTTP client with resume support
+          - Checksum verification (SHA256/SHA512/SHA1/MD5)
+          - State persistence (JSON)
+          - Queue management
+          - Parallel download scheduler
+          - Signal handling (SIGTERM/SIGINT)
+
+        packages:
+          - cmd/safedownload: CLI entrypoint
+          - pkg/downloader: Core download engine
+          - pkg/state: State management
+          - pkg/queue: Queue operations
+          - pkg/crypto: Checksum verification
+          - pkg/config: Configuration handling
+
+        dependencies:
+          - Standard library (net/http, crypto, encoding/json)
+          - No external dependencies for core
+
+        tests:
+          - Unit tests for all packages (>80% coverage)
+          - Integration tests for download scenarios
+          - Contract tests for CLI compatibility
+
+      - id: F012
+        name: "CLI Contract Preservation"
+        priority: P1
+        story_points: 8
+        components:
+          - Identical CLI interface to v0.x
+          - Same exit codes (0-4, 130)
+          - Same flags and arguments
+          - Same state directory (~/.safedownload/)
+          - Migration from Python state to Go state
+
+        tests:
+          - Regression tests against v0.2.0 CLI behavior
+          - State migration from v0.2.0 to v1.0.0
+          - Shell wrapper compatibility
+
+      - id: F013
+        name: "Cross-Platform Build"
+        priority: P2
+        story_points: 5
+        components:
+          - Makefile or build.sh for multi-platform builds
+          - GitHub Actions CI for macOS/Linux builds
+          - Binary releases with checksums
+          - SBOM generation (go.mod based)
+
+        platforms:
+          - darwin/amd64 (macOS Intel)
+          - darwin/arm64 (macOS Apple Silicon)
+          - linux/amd64 (Ubuntu/Debian)
+          - linux/arm64 (Raspberry Pi)
+
+        deliverables:
+          - safedownload-v1.0.0-darwin-arm64
+          - safedownload-v1.0.0-linux-amd64
+          - SHA256SUMS file
+          - SBOM.json
+
+    migration_plan:
+      - State migration tool (v0.x JSON → v1.0 JSON)
+      - Dual installation support (keep v0.x until verified)
+      - Rollback instructions
+      - Migration guide in docs/MIGRATION.md
+
+  # ---------------------------------------------------------------------------
+  # Phase 3: BUBBLE TEA TUI (Modern terminal UI)
+  # ---------------------------------------------------------------------------
+  - version: "1.1.0"
+    codename: "Bubble"
+    status: planned
+    target_date: "Q3 2026"
+    type: minor
+    description: "Modern Bubble Tea TUI with dashboard experience"
+    sprint_count: 3
+
+    features:
+      - id: F014
+        name: "Bubble Tea TUI Framework"
+        priority: P1
+        story_points: 13
+        components:
+          - Bubble Tea event loop
+          - Lip Gloss styling
+          - Interactive key bindings
+          - Real-time progress updates
+          - Multi-pane dashboard layout
+
+        dependencies:
+          - github.com/charmbracelet/bubbletea
+          - github.com/charmbracelet/lipgloss
+          - github.com/charmbracelet/bubbles
+
+        layout:
+          - Header: Stats (active/queued/completed/failed)
+          - Main: Download list with progress bars
+          - Footer: Help text and slash command prompt
+
+        tests:
+          - TUI startup <500ms (performance gate)
+          - Key binding behavior
+          - Theme switching (light/dark/high-contrast)
+
+      - id: F015
+        name: "Advanced Queue Visualization"
+        priority: P2
+        story_points: 8
+        components:
+          - Tree view for grouped downloads
+          - Filtering (by status, by tag)
+          - Sorting (by name, by size, by speed)
+          - Search within queue
+
+        commands:
+          - /filter <status>
+          - /sort <field>
+          - /search <term>
+          - /group <tag>
+
+      - id: F016
+        name: "Real-Time Notifications"
+        priority: P3
+        story_points: 5
+        components:
+          - Toast notifications for events
+          - Desktop notifications (optional)
+          - Sound alerts (optional, configurable)
+
+        events:
+          - Download completed
+          - Download failed
+          - Checksum mismatch
+          - Queue empty
+
+    configuration:
+      - config.json additions for TUI preferences
+      - theme, notifications, sound settings
+      - Backward compatible with v1.0.0 config
+
+  # ---------------------------------------------------------------------------
+  # Phase 4: ADVANCED FEATURES (Power user capabilities)
+  # ---------------------------------------------------------------------------
+  - version: "1.2.0"
+    codename: "Velocity"
+    status: planned
+    target_date: "Q4 2026"
+    type: minor
+    description: "Advanced features for power users and automation"
+    sprint_count: 3
+
+    features:
+      - id: F017
+        name: "GPG Signature Verification"
+        priority: P2
+        story_points: 8
+        components:
+          - --verify-sig flag with .asc file
+          - GPG keyring integration
+          - Signature verification logging
+
+        dependencies:
+          - System GPG or embedded library
+
+        tests:
+          - Valid signature verification
+          - Invalid signature rejection
+          - Missing key handling
+
+      - id: F018
+        name: "Auto-Upgrade Mechanism"
+        priority: P2
+        story_points: 8
+        components:
+          - --upgrade CLI flag
+          - /upgrade TUI command
+          - GitHub API version check
+          - Self-update with checksum verification
+          - Rollback on failed upgrade
+
+        tests:
+          - Upgrade from v1.1.0 to v1.2.0
+          - Checksum verification during upgrade
+          - Rollback on corruption
+
+      - id: F019
+        name: "Download Scheduling"
+        priority: P3
+        story_points: 8
+        components:
+          - Cron-like scheduling syntax
+          - Time-based queue activation
+          - Bandwidth throttling by schedule
+
+        examples:
+          - /schedule "0 2 * * *" download large-file.iso
+          - /throttle 1MB/s 09:00-17:00
+
+      - id: F020
+        name: "Plugin System"
+        priority: P3
+        story_points: 13
+        components:
+          - Plugin API for pre/post-download hooks
+          - Go plugin support or subprocess-based
+          - Plugin manifest and discovery
+
+        examples:
+          - Extract .zip after download
+          - Send notification to external service
+          - Virus scan before completion
+
+  # ---------------------------------------------------------------------------
+  # Phase 5: DISTRIBUTION & ECOSYSTEM (Package managers)
+  # ---------------------------------------------------------------------------
+  - version: "1.3.0"
+    codename: "Ecosystem"
+    status: planned
+    target_date: "Q1 2027"
+    type: minor
+    description: "Package manager integration and ecosystem tools"
+    sprint_count: 2
+
+    features:
+      - id: F021
+        name: "Homebrew Tap"
+        priority: P1
+        story_points: 5
+        components:
+          - homebrew-safedownload tap repository
+          - Formula for stable/beta channels
+          - Auto-update on brew upgrade
+
+        deliverables:
+          - peternicholls/homebrew-safedownload repository
+          - safedownload.rb formula
+
+      - id: F022
+        name: "Debian/Ubuntu Packages"
+        priority: P2
+        story_points: 8
+        components:
+          - .deb package generation
+          - APT repository hosting
+          - Package signing with GPG
+
+        platforms:
+          - Ubuntu 22.04 LTS, 24.04 LTS
+          - Debian 12+
+
+      - id: F023
+        name: "RPM Packages (Fedora/RHEL)"
+        priority: P3
+        story_points: 8
+        components:
+          - .rpm package generation
+          - YUM/DNF repository hosting
+
+        platforms:
+          - Fedora 39+
+          - RHEL 9+
+
+      - id: F024
+        name: "Docker Image"
+        priority: P3
+        story_points: 5
+        components:
+          - Multi-stage Dockerfile
+          - Alpine-based minimal image
+          - Docker Hub publishing
+
+        usage:
+          - docker run safedownload/safedownload <url>
+
+  # ---------------------------------------------------------------------------
+  # Phase 6: WEB & API (Remote access)
+  # ---------------------------------------------------------------------------
+  - version: "2.0.0"
+    codename: "Horizon"
+    status: backlog
+    target_date: "Q2-Q3 2027"
+    type: major
+    description: "HTTP API and web dashboard for remote access"
+    breaking_changes: true
+    sprint_count: 5
+
+    features:
+      - id: F025
+        name: "REST API Server"
+        priority: P1
+        story_points: 21
+        components:
+          - HTTP server mode (--server flag)
+          - RESTful API for queue operations
+          - WebSocket for real-time updates
+          - JWT authentication
+          - Rate limiting
+
+        endpoints:
+          - POST /api/v1/downloads
+          - GET /api/v1/downloads/:id
+          - DELETE /api/v1/downloads/:id
+          - POST /api/v1/downloads/:id/pause
+          - POST /api/v1/downloads/:id/resume
+          - WS /api/v1/stream
+
+      - id: F026
+        name: "Web Dashboard"
+        priority: P2
+        story_points: 21
+        components:
+          - React or Vue.js SPA
+          - Real-time queue visualization
+          - Drag-and-drop file uploads
+          - Mobile-responsive design
+
+        pages:
+          - Dashboard (queue overview)
+          - Download details
+          - Settings
+          - API keys management
+
+      - id: F027
+        name: "Multi-User Support"
+        priority: P3
+        story_points: 13
+        components:
+          - User authentication and sessions
+          - Per-user download queues
+          - Permission system (admin/user roles)
+          - Quota management
+
+# =============================================================================
+# CROSS-CUTTING CONCERNS
+# =============================================================================
+
+cross_cutting:
+  documentation:
+    - id: DOC001
+      name: "Comprehensive README"
+      ongoing: true
+      updates_per_release: true
+      sections:
+        - Quick start
+        - Installation (all platforms)
+        - Usage examples
+        - Configuration reference
+        - Troubleshooting
+        - Contributing guidelines
+
+    - id: DOC002
+      name: "API Documentation"
+      start_version: "1.0.0"
+      tools:
+        - godoc for Go packages
+        - OpenAPI/Swagger for REST API (v2.0.0)
+
+    - id: DOC003
+      name: "Migration Guides"
+      per_major_version: true
+      required_for:
+        - v0.x → v1.0.0
+        - v1.x → v2.0.0
+
+  testing:
+    - id: TEST001
+      name: "Unit Tests"
+      coverage_target: "80%"
+      per_release: true
+      frameworks:
+        - Go: testing package + testify
+        - Shell: shellcheck + bats (v0.x)
+
+    - id: TEST002
+      name: "Integration Tests"
+      start_version: "1.0.0"
+      scenarios:
+        - Full download lifecycle
+        - Resume after interruption
+        - Parallel downloads
+        - Checksum verification
+        - State migration
+
+    - id: TEST003
+      name: "Performance Benchmarks"
+      start_version: "1.0.0"
+      gates:
+        - TUI startup <500ms
+        - Queue list <100ms
+        - Add download <100ms
+        - Resume calc <50ms
+
+    - id: TEST004
+      name: "Security Testing"
+      start_version: "0.2.0"
+      ongoing: true
+      checks:
+        - HTTPS enforcement
+        - Credential leak detection
+        - TLS verification
+        - Checksum tampering resistance
+
+  ci_cd:
+    - id: CI001
+      name: "GitHub Actions Pipeline"
+      start_version: "0.2.0"
+      jobs:
+        - Lint (shellcheck for v0.x, golangci-lint for v1.x+)
+        - Unit tests
+        - Integration tests
+        - Build binaries (v1.0.0+)
+        - Security scan (gosec, trivy)
+
+    - id: CI002
+      name: "Release Automation"
+      start_version: "1.0.0"
+      triggers:
+        - Tag push (vX.Y.Z)
+      actions:
+        - Build multi-platform binaries
+        - Generate checksums
+        - Create GitHub release
+        - Update CHANGELOG.md
+        - Publish to package managers
+
+# =============================================================================
+# DEPENDENCIES & TECH STACK
+# =============================================================================
+
+tech_stack:
+  v0_x: # Current (Bash/Python)
+    languages:
+      - Bash/Zsh
+      - Python 3.7+
+    core_dependencies:
+      - curl 7.60+
+      - python3 (standard library only)
+    optional_dependencies:
+      - gum (for enhanced TUI)
+
+  v1_x: # Go core
+    languages:
+      - Go 1.21+
+      - Shell (wrapper only)
+    core_dependencies:
+      - Go standard library only
+    optional_dependencies:
+      - github.com/charmbracelet/bubbletea (TUI)
+      - github.com/charmbracelet/lipgloss (styling)
+      - github.com/charmbracelet/bubbles (components)
+
+    build_tools:
+      - make or build.sh
+      - goreleaser (releases)
+
+  v2_x: # Web/API
+    additional_languages:
+      - TypeScript/JavaScript (web dashboard)
+    additional_dependencies:
+      - Go HTTP server libraries (stdlib or gin/echo)
+      - React or Vue.js (frontend)
+      - WebSocket library
+
+# =============================================================================
+# SPRINT PLANNING TEMPLATE
+# =============================================================================
+
+sprint_template:
+  duration: "2 weeks"
+  story_points_per_sprint: "20-25"
+  ceremonies:
+    - Planning: "Day 1"
+    - Daily standup: "Daily, 15min"
+    - Review: "Last day"
+    - Retrospective: "Last day"
+
+  sprint_structure:
+    - 40%: Feature development
+    - 30%: Testing and bug fixes
+    - 20%: Documentation
+    - 10%: Technical debt and refactoring
+
+# =============================================================================
+# RISK REGISTER
+# =============================================================================
+
+risks:
+  - id: RISK001
+    title: "Go Core Migration Complexity"
+    impact: high
+    probability: medium
+    mitigation:
+      - Incremental migration approach
+      - Comprehensive contract tests
+      - Dual installation support during transition
+      - Extensive beta testing period
+
+  - id: RISK002
+    title: "Platform Compatibility Issues"
+    impact: medium
+    probability: medium
+    mitigation:
+      - CI testing on all Tier 1 platforms
+      - Community testing program for Tier 2/3
+      - Clear platform support documentation
+
+  - id: RISK003
+    title: "Performance Regression in TUI"
+    impact: medium
+    probability: low
+    mitigation:
+      - Performance benchmarks in CI
+      - <500ms startup gate enforced
+      - Profiling tools integration
+
+  - id: RISK004
+    title: "Security Vulnerabilities"
+    impact: high
+    probability: low
+    mitigation:
+      - Security scanning in CI (gosec, trivy)
+      - GitHub Security Advisories
+      - 7-day critical CVE SLA
+      - Regular dependency updates
+
+# =============================================================================
+# SUCCESS METRICS
+# =============================================================================
+
+success_metrics:
+  quality:
+    - Code coverage: "≥80% for Go core"
+    - Test pass rate: "100% on main branch"
+    - Security scan: "0 high/critical vulnerabilities"
+    - Performance gates: "100% pass rate"
+
+  adoption:
+    - GitHub stars: "Target milestones TBD"
+    - Homebrew installs: "Track via analytics (opt-in)"
+    - Issue response time: "<48 hours"
+    - Documentation feedback: "Positive >80%"
+
+  stability:
+    - Uptime (for v2.0 server): "99.9%"
+    - Crash rate: "<0.1%"
+    - Data loss incidents: "0"
+    - Successful resume rate: ">95%"
