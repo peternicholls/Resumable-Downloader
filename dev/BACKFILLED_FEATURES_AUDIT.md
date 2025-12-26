@@ -214,19 +214,50 @@ This audit reviews the 5 backfilled feature specifications (F001-F005) that were
 #### Actual Implementation Details (from archive/2025-12-24/)
 
 ✅ **Found in Implementation**:
-- Algorithms implemented: SHA256 (sha256sum), SHA512 (sha512sum), MD5 (md5sum)
+- Algorithms implemented: SHA256 (sha256sum), SHA512 (sha512sum), SHA1 (sha1sum), MD5 (md5sum)
+- ⚠️ **SECURITY CRITICAL**: MD5 and SHA1 are cryptographically broken and vulnerable to collision attacks
 - Checksum verification at line 407+ in safedownload script
 - Exit handling for mismatches (needs verification in code)
 
+⚠️ **SECURITY WARNING**:
+- MD5 and SHA1 MUST NOT be used for security-sensitive verification
+- An attacker who can influence both the file and its hash can exploit collision weaknesses to substitute malicious payloads
+- These algorithms are retained ONLY for legacy compatibility
+- Future implementations SHOULD add runtime warnings and/or deprecate MD5/SHA1 support
+
 ✅ **Can Extract**:
-- Actual checksum calculation method (via sha256sum/sha512sum/md5sum commands)
+- Actual checksum calculation method (via sha256sum/sha512sum/md5sum/sha1sum commands)
 - Implementation approach (verify after download, not streaming)
 
 #### Recommendations
 
-**Priority: MEDIUM**
+**Priority: MEDIUM-HIGH** (Security issue with current implementation)
 
-1. **Add Performance Measurements from Archive Analysis**:
+1. **Add Security Warnings for Broken Algorithms** (HIGH PRIORITY):
+   ```yaml
+   security_improvements:
+     - priority: "HIGH"
+       issue: "MD5/SHA1 are cryptographically broken but no runtime warnings"
+       recommendation: "Add explicit warnings when users select MD5/SHA1"
+       implementation:
+         - "Print to stderr: 'WARNING: MD5 is cryptographically broken and unsafe'"
+         - "Log warning in safedownload.log"
+         - "Update help text to mark MD5/SHA1 as DEPRECATED"
+     
+     - priority: "HIGH"
+       issue: "Users may unknowingly use broken algorithms for security verification"
+       recommendation: "Add --strict-security flag to reject MD5/SHA1"
+       implementation:
+         - "New flag: --strict-security (reject MD5/SHA1, only allow SHA256/SHA512)"
+         - "Document in security best practices guide"
+     
+     - priority: "MEDIUM"
+       issue: "Future versions should not support broken algorithms"
+       recommendation: "Plan deprecation of MD5/SHA1 in v2.0.0"
+       migration_path: "Users have until v2.0 to migrate to SHA256/SHA512"
+   ```
+
+2. **Add Performance Measurements from Archive Analysis**:
    ```yaml
    non_functional_requirements:
      performance:
@@ -241,13 +272,37 @@ This audit reviews the 5 backfilled feature specifications (F001-F005) that were
          measured_on: "macOS M1, 2025-12-24"
    ```
 
-2. **Add Algorithm Guidance**:
+2. **Add Algorithm Guidance with Security Warnings**:
    ```yaml
    implementation_notes:
      algorithm_recommendations:
-       - "SHA256: Recommended for general use (balance of security/speed)"
-       - "SHA512: Use for maximum security"
-       - "SHA1/MD5: Legacy support only, not recommended for new workflows"
+       - algorithm: "SHA256"
+         status: "RECOMMENDED"
+         use_case: "General use, all security-sensitive verification"
+         security: "SECURE - No known practical attacks"
+       
+       - algorithm: "SHA512"
+         status: "RECOMMENDED"
+         use_case: "Maximum security, large files"
+         security: "SECURE - No known practical attacks"
+       
+       - algorithm: "SHA1"
+         status: "DEPRECATED - DO NOT USE"
+         use_case: "Legacy compatibility ONLY"
+         security: "BROKEN - Vulnerable to collision attacks"
+         warning: "⚠️ SECURITY RISK: Attacker can create malicious files that pass SHA1 verification"
+       
+       - algorithm: "MD5"
+         status: "DEPRECATED - DO NOT USE"
+         use_case: "Legacy compatibility ONLY"
+         security: "BROKEN - Vulnerable to collision attacks"
+         warning: "⚠️ SECURITY RISK: Attacker can create malicious files that pass MD5 verification"
+     
+     security_policy:
+       - "SHA256/SHA512 REQUIRED for all production and security-sensitive downloads"
+       - "MD5/SHA1 MUST NOT be used for verifying downloads from untrusted sources"
+       - "Future versions SHOULD add runtime warnings when MD5/SHA1 are selected"
+       - "Consider adding --strict-security flag to reject broken algorithms"
    ```
 
 ---
@@ -522,6 +577,49 @@ This audit reviews the 5 backfilled feature specifications (F001-F005) that were
 3. **Implementation Notes**: No lessons learned or challenges documented
 4. **Platform-Specific Details**: No notes on behavior differences across macOS/Linux
 5. **Real-World Validation**: No production usage examples or user feedback
+
+### Critical Security Finding
+
+**⚠️ SECURITY ISSUE: Cryptographically Broken Algorithms Supported (F002)**
+
+**Severity**: HIGH  
+**Feature**: F002 - Checksum Verification  
+**Issue**: MD5 and SHA1 algorithms are cryptographically broken and vulnerable to collision attacks, yet are supported without warnings or restrictions.
+
+**Risk**: 
+- An attacker who can influence both a downloaded file and its advertised hash can exploit MD5/SHA1 collision weaknesses to substitute malicious payloads that still pass verification
+- This undermines the trust model and security posture of SafeDownload
+- Users may unknowingly use these broken algorithms for security-sensitive verification
+
+**Current State**:
+- MD5 and SHA1 implemented in archive/2025-12-24/safedownload (lines 407-433)
+- No runtime warnings when these algorithms are selected
+- No mechanism to restrict their use
+- Documentation now updated to mark as DEPRECATED
+
+**Recommendations** (in priority order):
+
+1. **IMMEDIATE** (Sprint 2): Add runtime warnings
+   - Print to stderr when MD5/SHA1 selected: "WARNING: [algorithm] is cryptographically broken and unsafe for security verification"
+   - Log warnings in safedownload.log
+   - Update --help text to mark MD5/SHA1 as DEPRECATED
+
+2. **HIGH** (Sprint 2-3): Add --strict-security flag
+   - New flag that rejects MD5/SHA1, only allows SHA256/SHA512
+   - Enable by default in future versions with opt-out for legacy compatibility
+   - Document in security best practices
+
+3. **MEDIUM** (v2.0.0): Complete deprecation
+   - Remove MD5/SHA1 support entirely in v2.0.0
+   - Provide migration period with clear warnings
+   - Update constitution to mandate SHA256/SHA512 only
+
+**Documentation Updated**:
+- ✅ F002 spec now includes security warnings and deprecation notices
+- ✅ BACKFILLED_FEATURES_AUDIT.md now includes security analysis
+- ✅ Recommendations added for future remediation
+
+**Status**: Documented and flagged for Sprint 2 remediation
 
 ### Strengths Across All Features
 

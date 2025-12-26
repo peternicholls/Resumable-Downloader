@@ -87,14 +87,16 @@ functional_requirements:
     status: "implemented"
 
   - id: "FR002-3"
-    description: "System MUST support SHA1 checksum verification"
-    priority: "MUST"
+    description: "System MUST support SHA1 checksum verification (DEPRECATED - legacy only)"
+    priority: "SHOULD NOT"
     status: "implemented"
+    deprecation_notice: "SHA1 is cryptographically broken and MUST NOT be used for security-sensitive verification. Retained only for compatibility with legacy systems."
 
   - id: "FR002-4"
-    description: "System MUST support MD5 checksum verification"
-    priority: "MUST"
+    description: "System MUST support MD5 checksum verification (DEPRECATED - legacy only)"
+    priority: "SHOULD NOT"
     status: "implemented"
+    deprecation_notice: "MD5 is cryptographically broken and MUST NOT be used for security-sensitive verification. Retained only for compatibility with legacy systems."
 
   - id: "FR002-5"
     description: "System MUST exit with code 3 on checksum mismatch"
@@ -109,7 +111,10 @@ functional_requirements:
 non_functional_requirements:
   security:
     - "Checksum mismatches are fatal (never silent)"
-    - "SHA256/SHA512 recommended for production"
+    - "SHA256/SHA512 REQUIRED for production and security-sensitive verification"
+    - "MD5/SHA1 are cryptographically broken and MUST NOT be used for security verification"
+    - "MD5/SHA1 supported ONLY for legacy compatibility, not recommended"
+    - "Users MUST be warned when using MD5/SHA1 about security risks"
 
   performance:
     - "Checksum verification should be fast (<1s for 100MB file)"
@@ -163,16 +168,22 @@ actual_implementation:
     - algorithm: "SHA256"
       command: "sha256sum"
       default: true
-      notes: "Recommended for general use"
+      security_status: "SECURE"
+      notes: "RECOMMENDED for general use and all security-sensitive verification"
     - algorithm: "SHA512"
       command: "sha512sum"
-      notes: "Use for maximum security"
+      security_status: "SECURE"
+      notes: "RECOMMENDED for maximum security and large files"
     - algorithm: "SHA1"
       command: "sha1sum"
-      notes: "Legacy support only"
+      security_status: "BROKEN - DO NOT USE FOR SECURITY"
+      notes: "DEPRECATED - Cryptographically broken (collision attacks). Legacy compatibility ONLY. MUST NOT be used for security verification."
+      deprecation_warning: "SHA1 is vulnerable to collision attacks. An attacker can create malicious files that pass SHA1 verification."
     - algorithm: "MD5"
       command: "md5sum"
-      notes: "Legacy support only, not recommended"
+      security_status: "BROKEN - DO NOT USE FOR SECURITY"
+      notes: "DEPRECATED - Cryptographically broken (collision attacks). Legacy compatibility ONLY. MUST NOT be used for security verification."
+      deprecation_warning: "MD5 is vulnerable to collision attacks. An attacker can create malicious files that pass MD5 verification."
   
   verification_approach:
     timing: "Post-download (after file complete)"
@@ -188,9 +199,34 @@ actual_implementation:
   
   implementation_notes:
     algorithm_selection:
-      - "SHA256 is default and recommended"
-      - "All algorithms use system commands (sha256sum, sha512sum, md5sum)"
+      - "SHA256 is default and REQUIRED for all security-sensitive use cases"
+      - "SHA512 recommended for maximum security"
+      - "All algorithms use system commands (sha256sum, sha512sum, md5sum, sha1sum)"
       - "Case-insensitive hash comparison for robustness"
+    
+    security_critical:
+      - "⚠️ MD5 and SHA1 are CRYPTOGRAPHICALLY BROKEN"
+      - "MD5/SHA1 vulnerable to collision attacks - attacker can substitute malicious files"
+      - "NEVER use MD5/SHA1 for verifying downloads from untrusted sources"
+      - "MD5/SHA1 retained ONLY for compatibility with legacy systems"
+      - "Future versions SHOULD deprecate or remove MD5/SHA1 support"
+      - "Consider adding runtime warnings when MD5/SHA1 are used"
+    
+    recommended_future_enhancements:
+      - priority: "HIGH"
+        recommendation: "Add runtime warning when MD5/SHA1 used"
+        rationale: "Users should be explicitly warned about security risks"
+        implementation: "Print warning to stderr: 'WARNING: MD5/SHA1 are cryptographically broken and unsafe for security verification'"
+      
+      - priority: "HIGH"
+        recommendation: "Add --strict-security flag to reject MD5/SHA1"
+        rationale: "Allow security-conscious users to completely disable broken algorithms"
+        implementation: "Add flag that exits with error if MD5/SHA1 specified"
+      
+      - priority: "MEDIUM"
+        recommendation: "Deprecate MD5/SHA1 in v2.0.0"
+        rationale: "Future major version should remove support entirely"
+        migration_path: "Users must migrate to SHA256/SHA512 before v2.0"
     
     performance:
       - algorithm: "SHA256"
