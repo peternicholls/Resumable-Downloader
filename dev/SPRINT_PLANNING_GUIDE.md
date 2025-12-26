@@ -1,6 +1,6 @@
 # Sprint Planning Guide
 
-**Constitution**: v1.3.0 - Development Workflow  
+**Constitution**: v1.5.0 - Development Workflow  
 **Purpose**: Guide for planning and executing 2-week sprints  
 **Audience**: Maintainers, contributors
 
@@ -387,7 +387,7 @@ Features:
 - F007: Privacy & Data Minimization
 - F009: Error Handling & Exit Codes
 
-Constitution: v1.3.0
+Constitution: v1.5.0
 All gates passed.
 "
 git push origin v0.2.0
