@@ -20,9 +20,9 @@
 metadata:
   version: "1.0.0"
   created: "2025-12-25"
-  updated: "2025-12-25"
-  total_decisions: 1
-  decisions_pending: 1
+  updated: "2025-12-26"
+  total_decisions: 2
+  decisions_pending: 2
   decisions_approved: 0
   decisions_implemented: 0
 
@@ -260,6 +260,111 @@ decisions:
       validation_method: "Integration tests + benchmarks during Sprint 01"
       revisit_trigger: "If implementation takes >5 days or performance benchmarks fail gates"
 
+  - id: "D004"
+    title: "Accessible Terminal UI Implementation Approach"
+    category: "IMPLEMENTATION_APPROACH"
+    research_id: "R04"
+    feature_ids:
+      - "F008"
+      - "F014"
+    status: "PROPOSED"
+
+    dates:
+      proposed: "2025-12-26"
+      approved: null
+      implemented: null
+
+    context:
+      problem_statement: "Need to implement accessible terminal UI that works with screen readers, respects color preferences, and supports colorblind users while maintaining visual appeal"
+      constraints:
+        - "Must respect NO_COLOR environment variable (Constitution Principle XI)"
+        - "Screen readers work through terminal emulators, not apps directly"
+        - "WCAG 2.1 AA compliance required (4.5:1 contrast ratio)"
+        - "Cannot require specific terminal emulator"
+      assumptions:
+        - "Users with screen readers prefer GNOME Terminal, iTerm2, or Windows Terminal"
+        - "VoiceOver and NVDA are the primary screen readers to support"
+        - "Emoji + text pattern provides both visual and semantic information"
+
+    options_considered:
+      - name: "Full screen reader optimization with live regions"
+        pros:
+          - "Best possible screen reader experience"
+          - "Real-time progress announcements"
+        cons:
+          - "Terminal emulators don't support ARIA live regions"
+          - "Implementation complexity very high"
+          - "Inconsistent across terminals"
+        score: 35
+
+      - name: "Static text output with --plain flag"
+        pros:
+          - "Works with all screen readers"
+          - "Simple implementation"
+          - "Predictable behavior"
+        cons:
+          - "Less visually appealing"
+          - "No progress animations"
+        score: 75
+
+      - name: "Layered approach: TUI default + --plain flag + NO_COLOR"
+        pros:
+          - "Best experience for each user type"
+          - "Constitution compliant (Principle XII)"
+          - "termenv library handles detection"
+          - "Graceful degradation built-in"
+        cons:
+          - "Must maintain two output modes"
+          - "Testing complexity increased"
+        score: 92
+
+    decision:
+      selection: "Layered approach with TUI default, --plain flag, and NO_COLOR support"
+      rationale: |
+        The layered approach provides the best experience for all users:
+        1. TUI mode: Rich visuals with ANSI 16-color palette for most users
+        2. --plain flag: Screen reader users get linear, predictable output
+        3. NO_COLOR: Automatic detection disables all styling
+
+        Research confirmed that screen readers interact with terminal emulators,
+        not applications directly. The emoji + text pattern (✅ Success, ⚠️ Warning)
+        provides semantic meaning regardless of emoji rendering support.
+
+        The termenv library (★1600, actively maintained) provides reliable
+        terminal capability detection for Go implementation.
+      trade_offs_accepted:
+        - "Must maintain two output code paths (TUI and plain)"
+        - "Cannot provide animated progress to screen reader users"
+        - "Testing requires manual verification with actual screen readers"
+      fallback_plan: "If termenv proves problematic, can implement simplified detection using TERM and COLORTERM environment variables"
+
+    implementation:
+      effort_estimate: "M"
+      blocking_tasks:
+        - "Implement --plain flag in CLI contract"
+        - "Add NO_COLOR and SAFEDOWNLOAD_PLAIN environment variable detection"
+        - "Create ANSI 16-color palette with WCAG AA compliance"
+        - "Implement linear output mode for screen readers"
+      non_blocking_tasks:
+        - "Add high-contrast theme as additional option"
+        - "Document accessibility features in user guide"
+        - "Create colorblind simulation testing workflow"
+
+    review:
+      reviewers: []
+      concerns_raised: []
+      concerns_addressed: []
+
+    validation:
+      success_criteria:
+        - "--plain flag produces fully linear output"
+        - "NO_COLOR environment variable disables all ANSI codes"
+        - "Color palette passes WCAG 2.1 AA (4.5:1 contrast)"
+        - "VoiceOver can read all --plain output correctly"
+        - "Status indicators use emoji + text (not color alone)"
+      validation_method: "Manual testing with VoiceOver on macOS, colorblind simulation tools"
+      revisit_trigger: "If Bubble Tea library has better accessibility primitives in future versions"
+
 # Decision Backlog
 # Decisions that need to be made but lack sufficient research
 backlog:
@@ -289,7 +394,7 @@ backlog:
     research_id: "R04"
     blocking_version: "1.1.0"
     urgency: "HIGH"
-    notes: "Constitution requires accessibility"
+    notes: "RESOLVED - See decision D004"
 
   - id: "DB005"
     question: "State migration strategy (manual vs automated)"
