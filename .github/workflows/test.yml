@@ -55,6 +55,24 @@ jobs:
           ignore: "archive"
 
   # ===========================================================================
+  # Check if Go code exists
+  # ===========================================================================
+  check-go-code:
+    name: Check Go Code
+    runs-on: ubuntu-latest
+    outputs:
+      has_go: ${{ steps.check.outputs.has_go }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: check
+        run: |
+          if [ -f "go.mod" ]; then
+            echo "has_go=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_go=false" >> $GITHUB_OUTPUT
+          fi
+
+  # ===========================================================================
   # v0.x Tests (Bash/Python)
   # ===========================================================================
   test-bash:
@@ -110,6 +128,8 @@ jobs:
   test-go:
     name: Test (Go v1.x)
     runs-on: ${{ matrix.os }}
+    needs: [check-go-code]
+    if: needs.check-go-code.outputs.has_go == 'true'
     strategy:
       matrix:
         os: [ubuntu-22.04, ubuntu-24.04, macos-latest]
@@ -151,7 +171,8 @@ jobs:
   test-integration:
     name: Integration Tests
     runs-on: ubuntu-latest
-    needs: [lint, test-go]
+    needs: [check-go-code, lint, test-go]
+    if: needs.check-go-code.outputs.has_go == 'true'
     steps:
       - uses: actions/checkout@v4
 
@@ -174,7 +195,8 @@ jobs:
   benchmark:
     name: Performance Benchmarks
     runs-on: ubuntu-latest
-    needs: [test-go]
+    needs: [check-go-code, test-go]
+    if: needs.check-go-code.outputs.has_go == 'true'
     steps:
       - uses: actions/checkout@v4
 
@@ -208,20 +230,24 @@ jobs:
   security:
     name: Security Scan
     runs-on: ubuntu-latest
+    needs: [check-go-code]
     steps:
       - uses: actions/checkout@v4
 
       - name: Setup Go
+        if: needs.check-go-code.outputs.has_go == 'true'
         uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
 
       - name: Run gosec
+        if: needs.check-go-code.outputs.has_go == 'true'
         uses: securego/gosec@master
         with:
           args: "-no-fail -fmt sarif -out gosec-results.sarif ./..."
 
       - name: Upload gosec results
+        if: needs.check-go-code.outputs.has_go == 'true'
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: gosec-results.sarif
@@ -246,7 +272,8 @@ jobs:
   security-tests:
     name: Security Tests
     runs-on: ubuntu-latest
-    needs: [test-go]
+    needs: [check-go-code, test-go]
+    if: needs.check-go-code.outputs.has_go == 'true'
     steps:
       - uses: actions/checkout@v4
 
@@ -269,7 +296,8 @@ jobs:
   accessibility:
     name: Accessibility Tests
     runs-on: ubuntu-latest
-    needs: [test-go]
+    needs: [check-go-code, test-go]
+    if: needs.check-go-code.outputs.has_go == 'true'
     steps:
       - uses: actions/checkout@v4
 
@@ -292,7 +320,8 @@ jobs:
   build:
     name: Build
     runs-on: ubuntu-latest
-    needs: [test-go, lint]
+    needs: [check-go-code, test-go, lint]
+    if: needs.check-go-code.outputs.has_go == 'true'
     strategy:
       matrix:
         goos: [darwin, linux]
