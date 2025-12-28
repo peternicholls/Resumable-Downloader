@@ -298,15 +298,19 @@ main() {
     echo ""
     
     # Setup
+    echo "[DEBUG] About to setup" >&2
     trap teardown EXIT
     setup
+    echo "[DEBUG] Setup complete" >&2
     
     if $run_unit; then
         echo ""
         log_info "Running Unit Tests..."
         echo "----------------------------------------"
         
+        echo "[DEBUG] About to run first test: curl is available" >&2
         run_test "curl is available" test_curl_available
+        echo "[DEBUG] Completed first test" >&2
         run_test "curl version >= 7.60" test_curl_version
         run_test "python3 is available" test_python3_available
         run_test "state directory creation" test_state_directory_creation
