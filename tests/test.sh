@@ -125,8 +125,11 @@ run_test() {
     local test_name="$1"
     local test_func="$2"
     
+    echo "[DEBUG] run_test called: name='$test_name' func='$test_func'" >&2
     ((TESTS_RUN++))
+    echo "[DEBUG] TESTS_RUN=$TESTS_RUN" >&2
     log_test "$test_name"
+    echo "[DEBUG] About to execute test function: $test_func" >&2
     
     # Run test and capture result (don't exit on failure with set -e)
     set +e  # Temporarily disable exit on error
@@ -134,6 +137,7 @@ run_test() {
     local result=$?
     set -e  # Re-enable exit on error
     
+    echo "[DEBUG] Test result: $result" >&2
     if [[ $result -eq 0 ]]; then
         ((TESTS_PASSED++))
         echo -e "    ${GREEN}✓ PASSED${NC}"
@@ -141,6 +145,7 @@ run_test() {
         ((TESTS_FAILED++))
         echo -e "    ${RED}✗ FAILED${NC}"
     fi
+    echo "[DEBUG] run_test completed" >&2
 }
 
 # ===========================================================================
