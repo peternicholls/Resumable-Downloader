@@ -125,11 +125,8 @@ run_test() {
     local test_name="$1"
     local test_func="$2"
     
-    echo "[DEBUG] run_test called: name='$test_name' func='$test_func'" >&2
-    ((TESTS_RUN++))
-    echo "[DEBUG] TESTS_RUN=$TESTS_RUN" >&2
+    TESTS_RUN=$((TESTS_RUN + 1))
     log_test "$test_name"
-    echo "[DEBUG] About to execute test function: $test_func" >&2
     
     # Run test and capture result (don't exit on failure with set -e)
     set +e  # Temporarily disable exit on error
@@ -137,15 +134,13 @@ run_test() {
     local result=$?
     set -e  # Re-enable exit on error
     
-    echo "[DEBUG] Test result: $result" >&2
     if [[ $result -eq 0 ]]; then
-        ((TESTS_PASSED++))
+        TESTS_PASSED=$((TESTS_PASSED + 1))
         echo -e "    ${GREEN}✓ PASSED${NC}"
     else
-        ((TESTS_FAILED++))
+        TESTS_FAILED=$((TESTS_FAILED + 1))
         echo -e "    ${RED}✗ FAILED${NC}"
     fi
-    echo "[DEBUG] run_test completed" >&2
 }
 
 # ===========================================================================
@@ -303,19 +298,15 @@ main() {
     echo ""
     
     # Setup
-    echo "[DEBUG] About to setup" >&2
     trap teardown EXIT
     setup
-    echo "[DEBUG] Setup complete" >&2
     
     if $run_unit; then
         echo ""
         log_info "Running Unit Tests..."
         echo "----------------------------------------"
         
-        echo "[DEBUG] About to run first test: curl is available" >&2
         run_test "curl is available" test_curl_available
-        echo "[DEBUG] Completed first test" >&2
         run_test "curl version >= 7.60" test_curl_version
         run_test "python3 is available" test_python3_available
         run_test "state directory creation" test_state_directory_creation
