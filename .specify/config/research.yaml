@@ -23,7 +23,8 @@ paths:
 
   # Master research files
   research_plan: "dev/research/research-plan.yaml"
-  research_template: "dev/research/research-template.yaml"
+  research_template: ".specify/templates/research-template.yaml"
+  research_feedback_template: ".specify/templates/research-feedback-template.md"
   decision_log: "dev/research/decision-log.yaml"
   feedback_integration: "dev/research/feedback-integration.yaml"
   master_doc: "dev/research/MASTER.md"
