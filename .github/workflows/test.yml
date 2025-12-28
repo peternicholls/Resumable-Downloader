@@ -48,7 +48,12 @@ jobs:
             extends: default
             rules:
               line-length:
-                max: 120
+                max: 160
+              comments:
+                min-spaces-from-content: 1
+              comments-indentation: disable
+              braces:
+                max-spaces-inside: 1
               document-start: disable
 
       - name: Markdown Lint
