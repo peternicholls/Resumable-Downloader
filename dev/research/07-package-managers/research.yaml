@@ -162,7 +162,13 @@ findings:
     - aspect: "Tooling approach"
       options:
         - name: "goreleaser + nfpm"
-          pros: ["Unified config", "CI-friendly", "Signing support", "Brew tap integration"]
+          pros:
+            [
+              "Unified config",
+              "CI-friendly",
+              "Signing support",
+              "Brew tap integration",
+            ]
           cons: ["Limited highly custom packaging logic"]
           score: 88
         - name: "fpm + custom repo tooling"
