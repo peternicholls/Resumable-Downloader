@@ -16,10 +16,13 @@ metadata:
   # Human-readable name
   name: "Research Area Name"
 
-  # Folder name within dev/research/
+  # Folder name within {research_root}
   folder: "00-area-name"
 
-  # Target SafeDownload version this research supports
+  # Research type (from config research_types)
+  research_type: "library_evaluation" # library_evaluation | pattern_research | architecture_design | tool_selection | ecosystem_research
+
+  # Target project version this research supports
   target_version: "X.Y.Z"
 
   # Priority: P0 (blocks implementation), P1 (high), P2 (medium), P3 (low)
@@ -34,12 +37,16 @@ metadata:
   # Actual time spent (update as you go)
   actual_hours: 0
 
-  # Person assigned to this research
+  # Person or team assigned to this research
   assigned_to: null
 
-  # Features this research blocks
-  blocks_features:
-    - "F000" # Feature ID
+  # Stakeholder who requested this research (optional)
+  stakeholder: null
+
+  # Features this research blocks (use project's feature ID format)
+  blocks:
+    - id: "001" # Feature ID (format defined by project)
+      name: "Feature Name"
 
   # Research areas this depends on
   depends_on: []
@@ -147,28 +154,30 @@ sources:
       notes: null
 
 # =============================================================================
-# CONSTITUTION ALIGNMENT
+# CONSTITUTION ALIGNMENT (Optional - only if project has constitution)
 # =============================================================================
 
 constitution_alignment:
   # Which constitution principles this research relates to
+  # Use principle IDs from .specify/config/research.yaml
   principles:
-    - id: "I"
-      name: "Professional User Experience"
-      relevance: "How this research relates to principle I"
+    - id: "PRINCIPLE_ID" # From config constitution_principles
+      name: "Principle Name"
+      relevance: "How this research relates to this principle"
       compliance_notes: null # Fill in with findings
 
-  # Constitution gates this research informs
+  # Performance or quality gates this research informs
+  # Use gates from .specify/config/research.yaml
   gates:
-    - gate: "Performance"
-      requirement: "<500ms startup"
+    - gate: "Gate Name" # From config performance_gates
+      requirement: "<threshold"
       research_relevance: "How research informs this gate"
       findings: null
 
   # Potential constitution conflicts to watch for
   conflicts:
-    - principle: "II"
-      concern: "Adding dependencies vs minimal deps principle"
+    - principle: "PRINCIPLE_ID"
+      concern: "Description of potential conflict"
       resolution: null # How we resolved/will resolve
 
 # =============================================================================
@@ -267,7 +276,10 @@ decisions:
     reversibility: null # easy | moderate | difficult
     impacts:
       - document: "Feature spec"
-        path: "dev/specs/features/F000.yaml"
+        path: "{feature_specs}/F000.yaml" # Use paths from config
+        change: "What needs to change"
+      - document: "Architecture doc"
+        path: "{architecture_docs}/component.md" # Use paths from config
         change: "What needs to change"
     approved_by: null
     approval_date: null
@@ -308,8 +320,9 @@ next_steps:
 
 integration:
   # How findings integrate into project
+  # Use paths and patterns from .specify/config/research.yaml
   feature_specs:
-    - feature_id: "F000"
+    - feature_id: "001" # Project's feature ID format
       feature_name: "Feature name"
       updates_required:
         - section: "implementation.packages"
@@ -317,15 +330,16 @@ integration:
           status: "pending" # pending | completed
 
   architecture_docs:
-    - doc: "core-migration.md"
+    - doc: "architecture-doc.md" # File in {architecture_docs}
       updates_required:
-        - section: "Package Structure"
+        - section: "Technology Stack"
           change: "What to update"
           status: "pending"
 
-  standards:
-    - doc: "documentation.md"
-      updates_required: []
+  decision_log:
+    - decision_id: "D001"
+      update_required: "Add new decision entry"
+      status: "pending"
 
 # =============================================================================
 # LOG

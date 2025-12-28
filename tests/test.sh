@@ -125,14 +125,20 @@ run_test() {
     local test_name="$1"
     local test_func="$2"
     
-    ((TESTS_RUN++))
+    TESTS_RUN=$((TESTS_RUN + 1))
     log_test "$test_name"
     
-    if $test_func; then
-        ((TESTS_PASSED++))
+    # Run test and capture result (don't exit on failure with set -e)
+    set +e  # Temporarily disable exit on error
+    $test_func
+    local result=$?
+    set -e  # Re-enable exit on error
+    
+    if [[ $result -eq 0 ]]; then
+        TESTS_PASSED=$((TESTS_PASSED + 1))
         echo -e "    ${GREEN}✓ PASSED${NC}"
     else
-        ((TESTS_FAILED++))
+        TESTS_FAILED=$((TESTS_FAILED + 1))
         echo -e "    ${RED}✗ FAILED${NC}"
     fi
 }
@@ -199,13 +205,29 @@ test_checksum_format_sha256() {
 
 test_checksum_format_sha512() {
     local checksum
-    checksum="sha512:$(printf 'test' | sha512sum | awk '{print $1}')"
+    if command -v sha512sum &>/dev/null; then
+        checksum="sha512:$(printf 'test' | sha512sum | awk '{print $1}')"
+    elif command -v shasum &>/dev/null; then
+        # macOS uses shasum
+        checksum="sha512:$(printf 'test' | shasum -a 512 | awk '{print $1}')"
+    else
+        log_error "Neither sha512sum nor shasum command found. Cannot run checksum test."
+        return 1
+    fi
     [[ "$checksum" =~ ^sha512:[a-f0-9]{128}$ ]]
 }
 
 test_checksum_format_md5() {
     local checksum
-    checksum="md5:$(printf 'test' | md5sum | awk '{print $1}')"
+    if command -v md5sum &>/dev/null; then
+        checksum="md5:$(printf 'test' | md5sum | awk '{print $1}')"
+    elif command -v md5 &>/dev/null; then
+        # macOS uses md5
+        checksum="md5:$(printf 'test' | md5 -q)"
+    else
+        log_error "Neither md5sum nor md5 command found. Cannot run checksum test."
+        return 1
+    fi
     [[ "$checksum" =~ ^md5:[a-f0-9]{32}$ ]]
 }
 
@@ -235,7 +257,6 @@ test_fixture_manifest_exists() {
 main() {
     local run_unit=true
     local run_e2e=true
-    # shellcheck disable=SC2034
     local verbose=false
     
     # Parse arguments
@@ -255,6 +276,7 @@ main() {
                 shift
                 ;;
             --verbose)
+                # shellcheck disable=SC2034  # Reserved for future verbose output mode
                 verbose=true
                 shift
                 ;;

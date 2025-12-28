@@ -15,6 +15,10 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+  security-events: write
+
 env:
   GO_VERSION: "1.21"
   PYTHON_VERSION: "3.11"
@@ -44,7 +48,12 @@ jobs:
             extends: default
             rules:
               line-length:
-                max: 120
+                max: 160
+              comments:
+                min-spaces-from-content: 1
+              comments-indentation: disable
+              braces:
+                max-spaces-inside: 1
               document-start: disable
 
       - name: Markdown Lint
@@ -248,7 +257,7 @@ jobs:
 
       - name: Upload gosec results
         if: needs.check-go-code.outputs.has_go == 'true'
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: gosec-results.sarif
 
@@ -262,7 +271,7 @@ jobs:
           severity: "CRITICAL,HIGH"
 
       - name: Upload Trivy results
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: "trivy-results.sarif"
 
