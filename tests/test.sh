@@ -128,13 +128,14 @@ run_test() {
     ((TESTS_RUN++))
     log_test "$test_name"
     
+    # Run test and capture result (don't exit on failure)
     if $test_func; then
         ((TESTS_PASSED++))
         echo -e "    ${GREEN}✓ PASSED${NC}"
     else
         ((TESTS_FAILED++))
         echo -e "    ${RED}✗ FAILED${NC}"
-    fi
+    fi || true  # Prevent set -e from exiting on test failure
 }
 
 # ===========================================================================

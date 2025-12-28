@@ -145,7 +145,9 @@ constitution_alignment:
     - gate: "Performance"
       requirement: "Rate limiting ±5% accuracy"
       research_relevance: "Must validate chosen approach meets accuracy"
-      findings: "Both golang.org/x/time/rate and juju/ratelimit achieve ±1-4% accuracy across all tested rates (1KB/s to 100MB/s), well within ±5% requirement"
+      findings: >
+        Both golang.org/x/time/rate and juju/ratelimit achieve ±1-4% accuracy
+        across all tested rates (1KB/s to 100MB/s), well within ±5% requirement
 
 findings:
   discoveries:
@@ -201,7 +203,9 @@ findings:
 
 decisions:
   - decision: "Use golang.org/x/time/rate for bandwidth rate limiting"
-    rationale: "Official Go library with zero deps, BSD license, context support, and high adoption. Meets all requirements."
+    rationale: >
+      Official Go library with zero deps, BSD license, context support, and
+      high adoption. Meets all requirements.
     alternatives_considered:
       - "juju/ratelimit - rejected due to LGPL license and less active maintenance"
 risks:
@@ -255,7 +259,12 @@ log:
       notes: "All questions answered, recommendation: golang.org/x/time/rate"
 
 summary:
-  executive_summary: "Research confirms golang.org/x/time/rate is ideal for SafeDownload's bandwidth rate limiting needs. Token bucket algorithm with burst=rate provides smooth throttling with fast startup. io.Reader wrapper pattern integrates seamlessly with stdlib. Accuracy is ±1-4%, well within ±5% requirement."
+  executive_summary: >
+    Research confirms golang.org/x/time/rate is ideal for SafeDownload's
+    bandwidth rate limiting needs. Token bucket algorithm with burst=rate
+    provides smooth throttling with fast startup. io.Reader wrapper pattern
+    integrates seamlessly with stdlib. Accuracy is ±1-4%, well within ±5%
+    requirement.
   recommendations:
     - "Use golang.org/x/time/rate for rate limiting (official library, zero deps, BSD license)"
     - "Implement io.Reader wrapper in pkg/ratelimit package"
